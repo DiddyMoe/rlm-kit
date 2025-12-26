@@ -1,6 +1,6 @@
 from rlm.clients.base_lm import BaseLM, CostSummary
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from portkey_ai import Portkey
 from portkey_ai.api_resources.types.chat_complete_type import ChatCompletions
 
@@ -13,7 +13,7 @@ class PortkeyClient(BaseLM):
     def __init__(
         self,
         api_key: str,
-        model_name: str,
+        model_name: Optional[str] = None,
         base_url: Optional[str] = "https://api.portkey.ai/v1",
         **kwargs,
     ):
@@ -26,18 +26,23 @@ class PortkeyClient(BaseLM):
         self.total_output_tokens = 0
 
     def completion(
-        self, prompt: str | Dict[str, Any], model: Optional[str] = None
+        self, prompt: str | List[Dict[str, Any]], model: Optional[str] = None
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, list) and all(
+            isinstance(item, dict) for item in prompt
+        ):
+            messages = prompt
         else:
             raise ValueError(f"Invalid prompt type: {type(prompt)}")
 
-        actual_model = model or self.model_name
+        model = model or self.model_name
+        if not model:
+            raise ValueError("Model name is required for Portkey client.")
 
-        # Portkey's .chat.completions.create interface is compatible with OpenAI syntax.
         response = self.client.chat.completions.create(
-            model=actual_model,
+            model=model,
             messages=messages,
         )
         self._track_cost(response)
@@ -48,10 +53,16 @@ class PortkeyClient(BaseLM):
     ) -> str:
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, list) and all(
+            isinstance(item, dict) for item in prompt
+        ):
+            messages = prompt
         else:
             raise ValueError(f"Invalid prompt type: {type(prompt)}")
 
         model = model or self.model_name
+        if not model:
+            raise ValueError("Model name is required for Portkey client.")
 
         response = await self.client.chat.completions.create(
             model=model, messages=messages

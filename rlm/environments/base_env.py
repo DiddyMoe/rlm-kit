@@ -13,7 +13,15 @@ class BaseEnv(ABC):
         self.kwargs = kwargs
 
     @abstractmethod
-    async def execute_code(self, code: str) -> REPLResult:
+    def setup(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_context(self, context_payload: dict | list | str):
+        raise NotImplementedError
+
+    @abstractmethod
+    def execute_code(self, code: str) -> REPLResult:
         raise NotImplementedError
 
 
@@ -25,6 +33,14 @@ class IsolatedEnv(BaseEnv, ABC):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+    @abstractmethod
+    def setup(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_context(self, context_payload: dict | list | str):
+        raise NotImplementedError
 
     @abstractmethod
     def execute_code(self, code: str) -> REPLResult:
@@ -40,6 +56,14 @@ class NonIsolatedEnv(BaseEnv, ABC):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+    @abstractmethod
+    def setup(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def load_context(self, context_payload: dict | list | str):
+        raise NotImplementedError
 
     @abstractmethod
     def execute_code(self, code: str) -> REPLResult:

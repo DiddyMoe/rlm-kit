@@ -5,7 +5,6 @@ from rlm.core.types import ClientBackend
 
 from dotenv import load_dotenv
 from typing import Dict, Any
-import os
 
 load_dotenv()
 
@@ -19,14 +18,8 @@ def get_client(
     Currently supported backends: ['openai']
     """
     if backend == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not set")
-        return OpenAIClient(api_key=api_key, **backend_kwargs)
+        return OpenAIClient(**backend_kwargs)
     elif backend == "portkey":
-        api_key = os.environ.get("PORTKEY_API_KEY")
-        if not api_key:
-            raise ValueError("PORTKEY_API_KEY not set")
-        return PortkeyClient(api_key=api_key, **backend_kwargs)
+        return PortkeyClient(**backend_kwargs)
     else:
         raise ValueError(f"Unknown backend: {backend}. Supported backends: ['openai']")

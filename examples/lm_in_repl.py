@@ -14,10 +14,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+setup_code = """
+secret = "1424424"
+"""
+
+context_payload = """
+This is a test context. It should print out, revealing the magic number to be 4.
+"""
+
 code = """
 response = llm_query("What is 2 + 2? Reply with just the number.")
 print(response)
 print(type(response))
+print(context)
+print("Secret from setup code: ", secret)
 """
 
 
@@ -36,7 +46,11 @@ def main():
         print(f"LM Handler started at {handler.address}")
 
         # Create REPL with handler connection
-        with LocalREPL(lm_handler_address=handler.address) as repl:
+        with LocalREPL(
+            lm_handler_address=handler.address,
+            context_payload=context_payload,
+            setup_code=setup_code,
+        ) as repl:
             print("LocalREPL created, connected to handler\n")
 
             # Run code that uses llm_query
@@ -47,6 +61,7 @@ def main():
             print(f"stdout: {result.stdout!r}")
             print(f"stderr: {result.stderr!r}")
             print(f"response variable: {repl.locals.get('response')!r}")
+            print(f"locals: {repl.locals!r}")
             print(f"execution time: {result.execution_time:.3f}s")
 
 

@@ -58,7 +58,7 @@ def format_iteration(
     Returns:
         A list of messages to add to the next prompt
     """
-    messages = []
+    messages = [{"role": "assistant", "content": iteration.response}]
 
     for code_block in iteration.code_blocks:
         code = code_block.code

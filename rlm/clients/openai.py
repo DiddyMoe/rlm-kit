@@ -1,5 +1,5 @@
 from rlm.clients.base_lm import BaseLM, CostSummary
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import openai
 
 
@@ -8,7 +8,12 @@ class OpenAIClient(BaseLM):
     LM Client for running models with the OpenAI API.
     """
 
-    def __init__(self, api_key: str, model_name: str, **kwargs):
+    def __init__(
+        self,
+        api_key: str,
+        model_name: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(model_name=model_name, **kwargs)
 
         self.client = openai.OpenAI(api_key=api_key)
@@ -19,31 +24,43 @@ class OpenAIClient(BaseLM):
         self.total_output_tokens = 0
 
     def completion(
-        self, prompt: str | Dict[str, Any], model: Optional[str] = None
+        self, prompt: str | List[Dict[str, Any]], model: Optional[str] = None
     ) -> str:
         if isinstance(prompt, str):
-            prompt = [{"role": "user", "content": prompt}]
+            messages = [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, list) and all(
+            isinstance(item, dict) for item in prompt
+        ):
+            messages = prompt
         else:
             raise ValueError(f"Invalid prompt type: {type(prompt)}")
 
         model = model or self.model_name
+        if not model:
+            raise ValueError("Model name is required for OpenAI client.")
 
-        response = self.client.chat.completions.create(model=model, messages=prompt)
+        response = self.client.chat.completions.create(model=model, messages=messages)
         self._track_cost(response)
         return response.choices[0].message.content
 
     async def acompletion(
-        self, prompt: str | Dict[str, Any], model: Optional[str] = None
+        self, prompt: str | List[Dict[str, Any]], model: Optional[str] = None
     ) -> str:
         if isinstance(prompt, str):
-            prompt = [{"role": "user", "content": prompt}]
+            messages = [{"role": "user", "content": prompt}]
+        elif isinstance(prompt, list) and all(
+            isinstance(item, dict) for item in prompt
+        ):
+            messages = prompt
         else:
             raise ValueError(f"Invalid prompt type: {type(prompt)}")
 
         model = model or self.model_name
+        if not model:
+            raise ValueError("Model name is required for OpenAI client.")
 
         response = await self.client.chat.completions.create(
-            model=model, messages=prompt
+            model=model, messages=messages
         )
         self._track_cost(response)
         return response.choices[0].message.content

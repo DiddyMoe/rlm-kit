@@ -131,6 +131,19 @@ class LocalREPL(NonIsolatedEnv):
         self.temp_dir = tempfile.mkdtemp(prefix=f"repl_env_{uuid.uuid4()}_")
         self._lock = threading.Lock()
 
+        # Setup globals, locals, and modules in environment.
+        self.setup()
+
+        # Load context if provided
+        if context_payload is not None:
+            self.load_context(context_payload)
+
+        # Run setup code if provided
+        if setup_code:
+            self.execute_code(setup_code)
+
+    def setup(self):
+        """Setup the environment."""
         # Create sandboxed globals
         self.globals: dict[str, Any] = {
             "__builtins__": _SAFE_BUILTINS.copy(),
@@ -141,14 +154,6 @@ class LocalREPL(NonIsolatedEnv):
         # Add helper functions
         self.globals["FINAL_VAR"] = self._final_var
         self.globals["llm_query"] = self._llm_query
-
-        # Load context if provided
-        if context_payload is not None:
-            self._load_context(context_payload)
-
-        # Run setup code if provided
-        if setup_code:
-            self.execute_code(setup_code)
 
     def _final_var(self, variable_name: str) -> str:
         """Return the value of a variable as a final answer."""
@@ -177,20 +182,20 @@ class LocalREPL(NonIsolatedEnv):
         except Exception as e:
             return f"Error: LM query failed - {e}"
 
-    def _load_context(self, context_payload: dict | list | str):
+    def load_context(self, context_payload: dict | list | str):
         """Load context into the environment."""
         if isinstance(context_payload, str):
             context_path = os.path.join(self.temp_dir, "context.txt")
             with open(context_path, "w") as f:
                 f.write(context_payload)
-            self.step(
+            self.execute_code(
                 f"with open(r'{context_path}', 'r') as f:\n    context = f.read()"
             )
         else:
             context_path = os.path.join(self.temp_dir, "context.json")
             with open(context_path, "w") as f:
                 json.dump(context_payload, f)
-            self.step(
+            self.execute_code(
                 f"import json\nwith open(r'{context_path}', 'r') as f:\n    context = json.load(f)"
             )
 
