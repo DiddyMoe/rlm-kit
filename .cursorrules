@@ -1,0 +1,174 @@
+# RLM (Recursive Language Models) — Project Rules for Cursor AI
+
+---
+
+## 🚨 MANDATORY: Built-in IDE AI Chat Agent — Zero Exceptions
+
+These rules apply to the **built-in AI chat agent** in the IDE (e.g. Cursor Composer, GitHub Copilot Chat). They are **non-negotiable** and apply **under all circumstances**. There are **no exceptions**.
+
+### 1. RLM architecture only
+
+- The IDE AI chat agent **must only** use the **RLM architecture** for any conversational or agent-style interaction.
+- **Direct LLM API calls** (e.g. raw `openai.ChatCompletion.create`, `anthropic.messages.create`, or any `llm.completion(prompt)` outside RLM) for agent/chat behavior are **forbidden**. Use **AgentRLM** via `create_enforced_agent()` or `AgentRLM(..., environment="agent", enable_tools=True, enable_streaming=True)` and `agent.chat(..., stream=True)` only.
+- **Never** bypass RLM for agent chats. Enforcement rejects invalid configs; there is no opt-out.
+
+### 2. No direct codebase access — MCP only
+
+- The IDE AI chat agent is **not allowed under any circumstances** to **directly access the codebase**.
+- **Forbidden:** Reading files via `open()`, `read_file()`, `fs.readFile`, or any direct filesystem/editor API to repo code (e.g. `rlm/`, `scripts/`, `examples/`, `tests/`, or any project source).
+- **Required:** **All** repository/codebase access **must** go through the **RLM MCP Gateway** and its tools only: `rlm.session.create` → `rlm.roots.set` → `rlm.fs.list` → `rlm.fs.handle.create` → `rlm.span.read` (and `rlm.search.query` / `rlm.search.regex` as needed). No raw paths in content; bounded reads only (max 200 lines / 8KB per span).
+- This applies in **every** workspace (thin or full repo). Even when the repo is on disk, the agent **must not** read it directly — use MCP only.
+
+**Summary:** The built-in AI chat agent must (1) use only the RLM architecture for agent/chat behavior, and (2) never touch the codebase except through MCP tools. No exceptions.
+
+---
+
+## Project overview and goals
+
+This repository is an **extensible inference engine** for Recursive Language Models (RLMs): a task-agnostic paradigm for language models to handle near-infinite length contexts via programmatic examination, decomposition, and recursive self-calls.
+
+- **Paper:** [Recursive Language Models](https://arxiv.org/abs/2512.24601) — RLMs handle inputs up to two orders of magnitude beyond model context windows and outperform direct LLMs on long-context tasks.
+- **Upstream:** This repo (rlm-kit) extends [alexzhang13/rlm](https://github.com/alexzhang13/rlm). MCP gateway and AgentRLM are an additional layer; periodically sync with upstream (see PROJECT_TECHNICAL_OVERVIEW.md §9).
+
+**Core concepts:**
+
+- **REPL environment:** Input context lives in a REPL. The LM runs code, inspects data, and calls sub-LMs via `llm_query()` / `llm_query_batched()`.
+- **Recursive calls:** Sub-LM calls run inside the REPL; the host RLM orchestrates and uses their results.
+- **Completion:** The LM signals the final answer with `FINAL(...)` or `FINAL_VAR(variable_name)` (balanced-parenthesis parsing; see `rlm/utils/parsing.py` and docs/content/reference/repl-format.md).
+
+---
+
+## Architecture
+
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| Core | `rlm/core/` | RLM loop, LM handler, iteration, comms, types |
+| Clients | `rlm/clients/` | LM API integrations (OpenAI, Anthropic, Gemini, LiteLLM, Portkey, etc.) |
+| Environments | `rlm/environments/` | REPL execution: Local, Docker, Modal, Prime, Agent |
+| Logger | `rlm/logger/` | Trajectory logging for debugging |
+| Utils | `rlm/utils/` | Parsing, prompts, token counting |
+| AgentRLM | `rlm/agent_rlm.py` | Conversational AI with tools and streaming (use for agent chats) |
+| MCP | `scripts/rlm_mcp_gateway.py`, `rlm/mcp_*` | Bounded repo access and provenance for IDE agents |
+
+**Environments:** `local` (default), `docker`, `modal`, `prime`, `agent` (for AI assistants: tools, conversation memory, streaming).
+
+---
+
+## When to use RLM vs AgentRLM
+
+- **RLM completions** (long-context reasoning, benchmarks, code-augmented tasks): Use `RLM(..., environment="local"|"docker"|"modal"|"prime").completion(prompt)`. See getting-started/overview.md and reference/api/rlm.md.
+- **AI agent / conversational chats** (including the **built-in IDE AI chat agent** — Cursor Composer, Copilot Chat): The agent **must only** use the **RLM architecture**. Use **AgentRLM** with `environment="agent"`, `enable_tools=True`, and `enable_streaming=True`. Direct LLM calls for agent chats are **forbidden**; enforcement rejects invalid configs. See the mandatory rules at the top of this file.
+
+**Recommended agent path:** `create_enforced_agent()` guarantees correct setup.
+
+```python
+from rlm import create_enforced_agent
+
+agent = create_enforced_agent(
+    backend="openai",
+    backend_kwargs={"model_name": "gpt-4"},
+)
+agent.register_tool("web_search", search_fn)
+agent.add_context("user_profile", user_data)
+
+async for chunk in agent.chat(user_message, stream=True):
+    print(chunk, end="")
+```
+
+**Streaming:** `stream=True` is required for agent chats. Use `agent.chat()`, `agent.register_tool()`, `agent.add_context()`, `agent.save_context()` / `agent.load_context()`, and `FINAL(answer)` for completion. See reference/agents.md and examples/agent_example.py.
+
+---
+
+## Repository access and MCP (AI Chat Agent — no direct codebase access)
+
+**Strict rule (see mandatory section at top):** The built-in AI Chat Agent **is not allowed under any circumstances** to directly access the codebase. **All** repository/codebase access **must** go through the RLM MCP Gateway and its tools only — in **every** workspace (thin or full repo). **No exceptions.**
+
+- **Forbidden:** Direct file reads (`open()`, `read_file()`, or any direct filesystem/editor access to repo code). Do **not** use raw file paths or read entire files.
+- **Required:** Use MCP tools only: `rlm.session.create` → `rlm.roots.set` → `rlm.fs.list` → `rlm.fs.handle.create` → `rlm.span.read` (and `rlm.search.query` / `rlm.search.regex` as needed). Handle-based, bounded reads (max 200 lines / 8KB per span).
+- **Thin workspace:** Repo lives on the gateway host; MCP is the only way to reach it. **Full repo:** Even when the repo is on disk, the agent **must not** read it directly — configure the local gateway (e.g. `make ide-setup`) and use MCP tools only.
+
+See guides/ide-setup.md, guides/cursor-thin-workspace.md, usage/example-prompts.md, usage/example-scenarios.md.
+
+### MCP tool summary
+
+| Category | Tools |
+|----------|--------|
+| Session | `rlm.session.create`, `rlm.session.close`, `rlm.roots.set` |
+| Filesystem | `rlm.fs.list`, `rlm.fs.manifest`, `rlm.fs.handle.create` |
+| Reading | `rlm.span.read` (max 200 lines / 8KB), `rlm.chunk.create`, `rlm.chunk.get` |
+| Search | `rlm.search.query`, `rlm.search.regex` (references only) |
+| Execution | `rlm.exec.run`, `rlm.complete` |
+| Provenance | `rlm.provenance.report` |
+
+**Limits:** MAX_SPAN_LINES/MAX_SPAN_BYTES (200/8KB), per-session max_tool_calls and timeout_ms. See reference/quick-reference.md (Limits and budgets).
+
+---
+
+## Development setup and coding standards
+
+- **Tooling:** `uv` for dependencies; Python 3.11+; `ruff` for lint/format; `pytest`; pre-commit hooks.
+- **Formatting:** Ruff. All PRs must pass `ruff check --fix .` and `ruff format .`.
+- **Typing:** Prefer explicit types; avoid `# type: ignore` without justification.
+- **Naming:** snake_case (methods, variables), PascalCase (classes), UPPER_CASE (constants).
+- **Errors:** Fail fast and loud; no silent fallbacks.
+- **Imports:** Use relative imports within the `rlm` package.
+- **Core:** Avoid changing `core/` unless necessary; keep the repo minimal. See contributing/contributing.md.
+
+**Before a PR:** `uv run ruff check --fix .` → `uv run ruff format .` → `uv run pre-commit run --all-files` → `uv run pytest`.
+
+---
+
+## Key implementation patterns
+
+**LM client:** Inherit `BaseLM`; implement `completion`, `acompletion`, `get_usage_summary`, `get_last_usage`; track usage; register in `rlm/clients/__init__.py`.
+
+**Environment:** Inherit `NonIsolatedEnv` / `IsolatedEnv` / `AgentEnvironment`; implement `setup`, `load_context`, `execute_code`, `cleanup`; return `REPLResult`; provide `llm_query` / `llm_query_batched` in globals.
+
+**Communication:** Non-isolated = TCP socket to LMHandler; isolated = HTTP broker in sandbox. See reference/agents.md (Architecture).
+
+---
+
+## Testing and debugging
+
+- Write deterministic unit tests; mock external services.
+- Run: `make test` or `uv run pytest`. CI excludes Modal and API-key–dependent tests; run locally when needed.
+- **RLMLogger** + **visualizer** (`visualizer/`, `npm run dev`) for trajectory analysis.
+
+---
+
+## File patterns and context
+
+- **Examples:** `examples/*.py`
+- **Tests:** `tests/**/*.py`
+- **Docs:** `docs/` (Next.js doc site); content in `docs/content/`
+- **Visualizer:** `visualizer/` (Next.js + TypeScript)
+- **Scripts:** `scripts/` (MCP gateway, installers, deploy)
+
+**Important context files:** README.md, pyproject.toml, Makefile, PROJECT_TECHNICAL_OVERVIEW.md, docs/content/index.md, docs/content/getting-started/overview.md, docs/content/reference/agents.md, docs/content/reference/quick-reference.md, docs/content/contributing/contributing.md, examples/agent_example.py.
+
+---
+
+## Environment variables
+
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `PORTKEY_API_KEY`, `PRIME_API_KEY` — LM/gateway access
+- `RLM_GATEWAY_API_KEY` — Required for MCP gateway HTTP mode; do not commit
+- `MCP_RLM_ENFORCEMENT_ENABLED` — MCP enforcement (default: true)
+
+---
+
+## Documentation quick links
+
+- **New users:** getting-started/quick-start.md, getting-started/overview.md
+- **IDE + MCP:** guides/ide-setup.md, guides/mcp-gateway-quick-start.md
+- **Production (remote):** guides/remote-isolation.md, getting-started/installation.md
+- **Contributors:** reference/agents.md, contributing/contributing.md
+- **API:** reference/api/rlm.md; **MCP tools and limits:** reference/quick-reference.md
+
+All paths above are relative to `docs/content/`.
+
+---
+
+## ⚠️ Reminder: Built-in IDE AI Chat Agent
+
+1. **RLM only:** Use only the RLM architecture (AgentRLM / `create_enforced_agent()`, `agent.chat(..., stream=True)`). No direct LLM calls for agent chats. No exceptions.
+2. **MCP only for codebase:** Never directly access the codebase. All repo access goes through RLM MCP tools only. No exceptions.

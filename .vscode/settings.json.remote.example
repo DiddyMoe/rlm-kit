@@ -1,0 +1,57 @@
+{
+  "mcp.servers": {
+    "rlm-gateway": {
+      "command": "curl",
+      "args": [
+        "-X", "POST",
+        "https://your-gateway-host:8080/mcp",
+        "-H", "Authorization: Bearer ${RLM_GATEWAY_API_KEY}",
+        "-H", "Content-Type: application/json",
+        "--data-binary", "@-"
+      ],
+      "env": {
+        "RLM_GATEWAY_API_KEY": "${env:RLM_GATEWAY_API_KEY}"
+      },
+      "description": "RLM MCP Gateway - Remote isolation mode (HTTP)"
+    }
+  },
+  "github.copilot.advanced": {
+    "agent": {
+      "instructions": [
+        "🚨 CRITICAL: You cannot read the repository directly. Use MCP tools only.",
+        "",
+        "MANDATORY RLM-ONLY ACCESS:",
+        "- All repository access MUST go through rlm.* MCP tools",
+        "- NEVER attempt to read files directly from the filesystem",
+        "- The repository is NOT in this workspace",
+        "",
+        "REQUIRED TOOL SEQUENCE:",
+        "1. Use rlm.session.create to start a session",
+        "2. Use rlm.roots.set to configure allowed roots",
+        "3. Use rlm.fs.list for directory browsing (metadata only)",
+        "4. Use rlm.fs.handle.create to create file handles",
+        "5. Use rlm.span.read for bounded file reading (max 200 lines/8KB)",
+        "6. Use rlm.search.query for semantic search (references only)",
+        "7. Use rlm.complete for RLM reasoning with budgets",
+        "",
+        "BOUNDED OPERATIONS:",
+        "- Max span size: 200 lines or 8192 bytes",
+        "- Max search results: 10",
+        "- Max tool calls per session: 100",
+        "- Always respect bounded operations",
+        "",
+        "PROVENANCE:",
+        "- All operations are provenance-tracked",
+        "- Use rlm.provenance.report to get audit trail",
+        "",
+        "FORBIDDEN:",
+        "- ❌ Direct file reading (open(), read_file(), etc.)",
+        "- ❌ Reading entire files",
+        "- ❌ Path traversal outside allowed roots",
+        "- ❌ Network/process execution from sandbox",
+        "",
+        "See MCP_TOOL_CONTRACT_SPEC.md for complete tool documentation."
+      ]
+    }
+  }
+}
