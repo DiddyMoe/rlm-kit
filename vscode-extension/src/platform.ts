@@ -29,8 +29,8 @@ export function detectEditor(): EditorKind {
     return _detected;
   }
 
-  const appName = vscode.env.appName?.toLowerCase() ?? "";
-  const uriScheme = vscode.env.uriScheme?.toLowerCase() ?? "";
+  const appName = vscode.env.appName.toLowerCase();
+  const uriScheme = vscode.env.uriScheme.toLowerCase();
 
   if (appName.includes("cursor") || uriScheme.startsWith("cursor")) {
     _detected = "cursor";

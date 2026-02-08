@@ -102,7 +102,7 @@ export class RLMChatParticipant {
     logger.info("RLMParticipant", "Request received", {
       prompt: request.prompt.slice(0, 200),
       command: request.command ?? "(none)",
-      references: request.references?.length ?? 0,
+      references: request.references.length,
     });
 
     try {
@@ -183,8 +183,7 @@ export class RLMChatParticipant {
     }
 
     const models = await vscode.lm.selectChatModels({ family: "gpt-4o" });
-    const model = models[0];
-    if (!model) {
+    if (models.length === 0) {
       const allModels = await vscode.lm.selectChatModels();
       if (allModels.length === 0) {
         throw new Error("No language models available. Check your Copilot subscription.");
@@ -192,7 +191,7 @@ export class RLMChatParticipant {
       return this.callModel(allModels[0], prompt, token);
     }
 
-    return this.callModel(model, prompt, token);
+    return this.callModel(models[0], prompt, token);
   }
 
   private async callModel(
@@ -245,7 +244,7 @@ export class RLMChatParticipant {
   // ── Reference resolution ──────────────────────────────────────────
 
   private async resolveReferences(request: vscode.ChatRequest): Promise<string | null> {
-    if (!request.references || request.references.length === 0) {
+    if (request.references.length === 0) {
       return null;
     }
 

@@ -49,7 +49,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const editor = detectEditor();
   logger.info("Extension", "Activating RLM extension", {
     editor,
-    version: context.extension.packageJSON?.version ?? "unknown",
+    version: ((context.extension.packageJSON as Record<string, unknown> | undefined)?.["version"] as string | undefined) ?? "unknown",
   });
 
   // ── React to config changes ─────────────────────────────────────

@@ -45,7 +45,7 @@ export class BackendBridge {
   private generation = 0;
 
   /** Pending completion requests waiting for a result. */
-  private readonly pendingCompletions = new Map<string, PendingRequest<string>>();
+  private readonly pendingCompletions = new Map<string, PendingRequest>();
 
   /** Pending exec requests. */
   private readonly pendingExecs = new Map<string, PendingRequest<REPLResult>>();
@@ -396,7 +396,7 @@ export class BackendBridge {
       }
 
       case "llm_request":
-        this.handleLlmRequest(msg.nonce, msg.prompt, msg.model);
+        void this.handleLlmRequest(msg.nonce, msg.prompt, msg.model);
         break;
 
       case "progress":
@@ -405,27 +405,9 @@ export class BackendBridge {
         }
         break;
 
-      case "error": {
-        const nonce = msg.nonce;
-        if (nonce) {
-          // Try to resolve a pending completion
-          const completion = this.pendingCompletions.get(nonce);
-          if (completion) {
-            this.pendingCompletions.delete(nonce);
-            completion.reject(new Error(msg.error));
-            break;
-          }
-          // Try to resolve a pending exec
-          const exec = this.pendingExecs.get(nonce);
-          if (exec) {
-            this.pendingExecs.delete(nonce);
-            exec.reject(new Error(msg.error));
-            break;
-          }
-        }
-        logger.error("BackendBridge", "Backend error", { error: msg.error, nonce });
+      case "error":
+        this.handleErrorMessage(msg.nonce, msg.error);
         break;
-      }
 
       case "pong":
         logger.debug("BackendBridge", "Pong received");
@@ -435,6 +417,25 @@ export class BackendBridge {
         logger.warn("BackendBridge", "Unknown message type", { msg });
         break;
     }
+  }
+
+  /** Route an error message to the correct pending request, or log it. */
+  private handleErrorMessage(nonce: string | null | undefined, error: string): void {
+    if (nonce) {
+      const completion = this.pendingCompletions.get(nonce);
+      if (completion) {
+        this.pendingCompletions.delete(nonce);
+        completion.reject(new Error(error));
+        return;
+      }
+      const exec = this.pendingExecs.get(nonce);
+      if (exec) {
+        this.pendingExecs.delete(nonce);
+        exec.reject(new Error(error));
+        return;
+      }
+    }
+    logger.error("BackendBridge", "Backend error", { error, nonce });
   }
 
   /**

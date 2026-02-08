@@ -104,7 +104,7 @@ export class Orchestrator {
     try {
       const result = await this.executeWithBudget(request, spanId);
       const durationMs = Date.now() - startTime;
-      const stepsUsed = this.activeBudget?.stepsUsed ?? 0;
+      const stepsUsed = this.activeBudget.stepsUsed;
       const budgetExhausted = stepsUsed >= maxSteps || durationMs >= DEFAULT_WALL_CLOCK_MS;
 
       logger.span("Orchestrator", "Completion finished", spanId, durationMs, {
@@ -127,7 +127,7 @@ export class Orchestrator {
 
       logger.span("Orchestrator", "Completion failed", spanId, durationMs, {
         error: message,
-        stepsUsed: this.activeBudget?.stepsUsed ?? 0,
+        stepsUsed: this.activeBudget.stepsUsed,
       });
 
       throw err;
