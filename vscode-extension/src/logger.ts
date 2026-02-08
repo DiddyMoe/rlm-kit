@@ -129,6 +129,7 @@ class Logger {
   private currentSize = 0;
   private initialized = false;
   private tracingEnabled = true;
+  private crashHandlersRegistered = false;
 
   /**
    * Initialize the logger.
@@ -142,7 +143,7 @@ class Logger {
     }
 
     this.minLevel = parseLogLevel(level);
-    this.maxSizeBytes = Math.max(1, maxMb) * 1024 * 1024;
+    this.maxSizeBytes = maxMb * 1024 * 1024;
 
     fs.mkdirSync(logDir, { recursive: true });
     this.logPath = path.join(logDir, "rlm.jsonl");
@@ -157,16 +158,19 @@ class Logger {
 
     this.flushTimer = setInterval(() => this.flush(), 2000);
 
-    // Crash-safe: flush on unhandled errors
-    process.on("uncaughtException", (err: Error) => {
-      this.error("Process", "Uncaught exception", { error: err.message, stack: err.stack });
-      this.flush();
-    });
-    process.on("unhandledRejection", (reason: unknown) => {
-      const msg = reason instanceof Error ? reason.message : String(reason);
-      this.error("Process", "Unhandled rejection", { error: msg });
-      this.flush();
-    });
+    // Crash-safe: flush on unhandled errors (register only once)
+    if (!this.crashHandlersRegistered) {
+      this.crashHandlersRegistered = true;
+      process.on("uncaughtException", (err: Error) => {
+        this.error("Process", "Uncaught exception", { error: err.message, stack: err.stack });
+        this.flush();
+      });
+      process.on("unhandledRejection", (reason: unknown) => {
+        const msg = reason instanceof Error ? reason.message : String(reason);
+        this.error("Process", "Unhandled rejection", { error: msg });
+        this.flush();
+      });
+    }
 
     this.initialized = true;
   }
