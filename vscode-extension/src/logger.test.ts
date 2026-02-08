@@ -284,6 +284,63 @@ function testDisposeFlushes(): void {
   }
 }
 
+function testWarnFlushesImmediately(): void {
+  const dir = createTempDir();
+  try {
+    logger.init(dir, "debug", 5);
+    // WARN+ entries trigger a synchronous flush — verify the entry is on
+    // disk immediately after the call, without an explicit flush().
+    logger.warn("Test", "crash-safe warn entry");
+
+    const entries = parseLogEntries(dir);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0]["level"], "WARN");
+  } finally {
+    logger.dispose();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testErrorFlushesImmediately(): void {
+  const dir = createTempDir();
+  try {
+    logger.init(dir, "debug", 5);
+    logger.error("Test", "fatal error entry");
+
+    const entries = parseLogEntries(dir);
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0]["level"], "ERROR");
+  } finally {
+    logger.dispose();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function testRotationPreservesNewest(): void {
+  const dir = createTempDir();
+  try {
+    // Tiny cap so rotation triggers quickly
+    logger.init(dir, "debug", 0.001);
+
+    // Write enough data to trigger at least one rotation
+    for (let i = 0; i < 50; i++) {
+      logger.info("Test", `Entry-${i}-${"x".repeat(80)}`);
+    }
+    logger.flush();
+
+    const entries = parseLogEntries(dir);
+    assert.ok(entries.length > 0, "Should retain some entries after rotation");
+
+    // The last entry written should be among the kept entries (newest preserved)
+    const last = entries[entries.length - 1];
+    const lastMsg = String(last["message"]);
+    assert.ok(lastMsg.startsWith("Entry-"), "Newest entries should be preserved");
+  } finally {
+    logger.dispose();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // ── Runner ──────────────────────────────────────────────────────────
 
 const tests = [
@@ -299,6 +356,9 @@ const tests = [
   ["redaction: Gemini key", testGeminiKeyRedaction],
   ["redaction: GitHub PAT", testGitHubPatRedaction],
   ["dispose flushes", testDisposeFlushes],
+  ["warn flushes immediately", testWarnFlushesImmediately],
+  ["error flushes immediately", testErrorFlushesImmediately],
+  ["rotation preserves newest", testRotationPreservesNewest],
 ] as const;
 
 let passed = 0;
