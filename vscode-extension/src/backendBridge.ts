@@ -88,35 +88,8 @@ export class BackendBridge {
       this.readyReject = reject;
     });
 
-    // Filter environment: remove VS Code internals and sensitive vars
-    const filteredEnv: Record<string, string> = {};
-    const BLOCKED_PREFIXES = [
-      "ELECTRON_", "VSCODE_", "AWS_", "AZURE_", "GCP_",
-      "GITHUB_", "GOOGLE_APPLICATION", "DATABASE_",
-    ];
-    const BLOCKED_SUFFIXES = ["_TOKEN", "_SECRET", "_PASSWORD", "_CREDENTIALS"];
-    const BLOCKED_EXACT = new Set(["CHROME_DESKTOP"]);
-
-    for (const [k, v] of Object.entries(process.env)) {
-      if (v === undefined) {
-        continue;
-      }
-      const upper = k.toUpperCase();
-      if (BLOCKED_EXACT.has(upper)) {
-        continue;
-      }
-      if (BLOCKED_PREFIXES.some((p) => upper.startsWith(p))) {
-        continue;
-      }
-      if (BLOCKED_SUFFIXES.some((s) => upper.endsWith(s))) {
-        continue;
-      }
-      filteredEnv[k] = v;
-    }
-
-    // Ensure the rlm package is importable
     const repoRoot = path.join(__dirname, "..", "..");
-    filteredEnv["PYTHONPATH"] = repoRoot + (filteredEnv["PYTHONPATH"] ? `${path.delimiter}${filteredEnv["PYTHONPATH"]}` : "");
+    const filteredEnv = BackendBridge.buildChildEnv(repoRoot);
 
     this.proc = cp.spawn(this.pythonPath, ["-u", scriptPath], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -322,6 +295,9 @@ export class BackendBridge {
 
   private send(msg: OutboundMessage): void {
     if (!this.proc?.stdin?.writable) {
+      logger.debug("BackendBridge", "Attempted to send message but stdin is not writable", {
+        type: msg.type,
+      });
       return;
     }
     const line = JSON.stringify(msg) + "\n";
@@ -467,6 +443,41 @@ export class BackendBridge {
 
   // ── Utilities ─────────────────────────────────────────────────────
 
+  /**
+   * Build a sanitised copy of `process.env` for the child process.
+   * Strips VS Code internals, cloud credentials, and other sensitive vars.
+   */
+  private static buildChildEnv(repoRoot: string): Record<string, string> {
+    const BLOCKED_PREFIXES = [
+      "ELECTRON_", "VSCODE_", "AWS_", "AZURE_", "GCP_",
+      "GITHUB_", "GOOGLE_APPLICATION", "DATABASE_",
+    ];
+    const BLOCKED_SUFFIXES = ["_TOKEN", "_SECRET", "_PASSWORD", "_CREDENTIALS"];
+    const BLOCKED_EXACT = new Set(["CHROME_DESKTOP"]);
+
+    const env: Record<string, string> = {};
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v === undefined) {
+        continue;
+      }
+      const upper = k.toUpperCase();
+      if (BLOCKED_EXACT.has(upper)) {
+        continue;
+      }
+      if (BLOCKED_PREFIXES.some((p) => upper.startsWith(p))) {
+        continue;
+      }
+      if (BLOCKED_SUFFIXES.some((s) => upper.endsWith(s))) {
+        continue;
+      }
+      env[k] = v;
+    }
+
+    // Ensure the rlm package is importable
+    env["PYTHONPATH"] = repoRoot + (env["PYTHONPATH"] ? `${path.delimiter}${env["PYTHONPATH"]}` : "");
+    return env;
+  }
+
   private generateNonce(): string {
     return crypto.randomUUID();
   }
@@ -475,8 +486,10 @@ export class BackendBridge {
     if (this.proc) {
       try {
         this.proc.kill("SIGTERM");
-      } catch {
-        // Already dead
+      } catch (err: unknown) {
+        logger.debug("BackendBridge", "kill() failed — process already dead", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
       this.proc = null;
       this.ready = false;

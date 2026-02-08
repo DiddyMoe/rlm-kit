@@ -251,32 +251,45 @@ export class RLMChatParticipant {
     const parts: string[] = [];
 
     for (const ref of request.references) {
-      try {
-        const value = ref.value;
-
-        if (value instanceof vscode.Uri) {
-          const doc = await vscode.workspace.openTextDocument(value);
-          parts.push(`--- File: ${value.fsPath} ---\n${doc.getText()}`);
-        } else if (value instanceof vscode.Location) {
-          const doc = await vscode.workspace.openTextDocument(value.uri);
-          const text = doc.getText(value.range);
-          parts.push(`--- Selection from ${value.uri.fsPath} ---\n${text}`);
-        } else if (typeof value === "object" && value !== null && "uri" in value) {
-          const uri = (value as { uri: vscode.Uri }).uri;
-          if (uri instanceof vscode.Uri) {
-            const doc = await vscode.workspace.openTextDocument(uri);
-            parts.push(`--- File: ${uri.fsPath} ---\n${doc.getText()}`);
-          }
-        } else if (typeof value === "string") {
-          parts.push(value);
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logger.warn("RLMParticipant", "Failed to resolve reference", { error: msg });
+      const resolved = await this.resolveOneReference(ref);
+      if (resolved) {
+        parts.push(resolved);
       }
     }
 
     return parts.length > 0 ? parts.join("\n\n") : null;
+  }
+
+  /** Resolve a single chat reference to text, or return null on failure. */
+  private async resolveOneReference(ref: vscode.ChatPromptReference): Promise<string | null> {
+    try {
+      const value = ref.value;
+
+      if (value instanceof vscode.Uri) {
+        const doc = await vscode.workspace.openTextDocument(value);
+        return `--- File: ${value.fsPath} ---\n${doc.getText()}`;
+      }
+      if (value instanceof vscode.Location) {
+        const doc = await vscode.workspace.openTextDocument(value.uri);
+        return `--- Selection from ${value.uri.fsPath} ---\n${doc.getText(value.range)}`;
+      }
+      if (typeof value === "string") {
+        return value;
+      }
+      // Object with a .uri property (e.g. workspace folder)
+      if (typeof value === "object" && value !== null && "uri" in value) {
+        const uri = (value as { uri: vscode.Uri }).uri;
+        if (uri instanceof vscode.Uri) {
+          const doc = await vscode.workspace.openTextDocument(uri);
+          return `--- File: ${uri.fsPath} ---\n${doc.getText()}`;
+        }
+      }
+      return null;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn("RLMParticipant", "Failed to resolve reference", { error: msg });
+      return null;
+    }
   }
 
   // ── Backend management ────────────────────────────────────────────

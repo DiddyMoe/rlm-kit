@@ -115,7 +115,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand("rlm-chat.setApiKey", async () => {
       const backend = await vscode.window.showQuickPick(
-        KNOWN_BACKENDS.map((b) => b),
+        [...KNOWN_BACKENDS],
         { placeHolder: "Select the backend to store an API key for" },
       );
       if (backend) {

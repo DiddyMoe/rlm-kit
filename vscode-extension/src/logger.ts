@@ -152,8 +152,10 @@ class Logger {
       this.fd = fs.openSync(this.logPath, "a");
       const stat = fs.fstatSync(this.fd);
       this.currentSize = stat.size;
-    } catch {
+    } catch (err: unknown) {
       this.fd = null;
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[rlm-logger] Failed to open log file: ${msg}\n`);
     }
 
     this.flushTimer = setInterval(() => this.flush(), 2000);
@@ -279,7 +281,9 @@ class Logger {
     try {
       fs.writeSync(this.fd, combined);
       this.currentSize += Buffer.byteLength(combined, "utf-8");
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[rlm-logger] Flush failed: ${msg}\n`);
       return;
     }
 
