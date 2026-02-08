@@ -1,58 +1,35 @@
-.PHONY: help install install-dev install-modal run-all \
-        quickstart docker-repl lm-repl modal-repl \
-        lint format test check
+.PHONY: help install build typecheck lint test check clean
+
+EXT_DIR := vscode-extension
 
 help:
-	@echo "RLM Examples Makefile"
+	@echo "RLM VS Code Extension"
 	@echo ""
-	@echo "Usage:"
-	@echo "  make install        - Install base dependencies with uv"
-	@echo "  make install-dev    - Install dev dependencies with uv"
-	@echo "  make install-modal  - Install modal dependencies with uv"
-	@echo "  make run-all        - Run all examples (requires all deps and API keys)"
-	@echo ""
-	@echo "Examples:"
-	@echo "  make quickstart     - Run quickstart.py (needs OPENAI_API_KEY)"
-	@echo "  make docker-repl    - Run docker_repl_example.py (needs Docker)"
-	@echo "  make lm-repl        - Run lm_in_repl.py (needs PORTKEY_API_KEY)"
-	@echo "  make modal-repl     - Run modal_repl_example.py (needs Modal)"
-	@echo ""
-	@echo "Development:"
-	@echo "  make lint           - Run ruff linter"
-	@echo "  make format         - Run ruff formatter"
-	@echo "  make test           - Run tests"
-	@echo "  make check          - Run lint + format + tests"
+	@echo "  make install    - Install npm + Python dependencies"
+	@echo "  make build      - Compile TypeScript"
+	@echo "  make typecheck  - Strict TypeScript type-check (no emit)"
+	@echo "  make lint       - ESLint (zero warnings)"
+	@echo "  make test       - Run extension unit tests"
+	@echo "  make check      - typecheck + lint + test"
+	@echo "  make clean      - Remove build artifacts"
 
 install:
-	uv sync
+	cd $(EXT_DIR) && npm ci
+	pip install -e . --quiet 2>/dev/null || true
 
-install-dev:
-	uv sync --group dev --group test
+build:
+	cd $(EXT_DIR) && npx tsc -p ./
 
-install-modal:
-	uv pip install -e ".[modal]"
+typecheck:
+	cd $(EXT_DIR) && npx tsc --noEmit
 
-run-all: quickstart docker-repl lm-repl modal-repl
+lint:
+	cd $(EXT_DIR) && npx eslint src/ --max-warnings 0
 
-quickstart: install
-	uv run python -m examples.quickstart
+test: build
+	cd $(EXT_DIR) && node out/logger.test.js
 
-docker-repl: install
-	uv run python -m examples.docker_repl_example
+check: typecheck lint test
 
-lm-repl: install
-	uv run python -m examples.lm_in_repl
-
-modal-repl: install-modal
-	uv run python -m examples.modal_repl_example
-
-lint: install-dev
-	uv run ruff check .
-
-format: install-dev
-	uv run ruff format .
-
-test: install-dev
-	uv run pytest
-
-check: lint format test
+clean:
+	rm -rf $(EXT_DIR)/out
