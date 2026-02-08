@@ -39,6 +39,10 @@ export class BackendBridge {
   private readyReject: ((err: Error) => void) | null = null;
   private disposed = false;
 
+  /** Monotonically increasing generation counter — used to ignore stale
+   *  exit/error events from a previous process after restart. */
+  private generation = 0;
+
   /** Pending completion requests waiting for a result. */
   private readonly pendingCompletions = new Map<string, PendingRequest<string>>();
 
@@ -70,6 +74,10 @@ export class BackendBridge {
     // Kill any existing process
     this.killProcess();
 
+    // Bump generation so stale exit/error handlers from the old process
+    // cannot resolve/reject callbacks that belong to this new session.
+    const gen = ++this.generation;
+
     const scriptPath = path.join(__dirname, "..", "python", "rlm_backend.py");
     logger.info("BackendBridge", "Spawning backend", { scriptPath, pythonPath: this.pythonPath });
 
@@ -94,7 +102,7 @@ export class BackendBridge {
 
     // Ensure the rlm package is importable
     const repoRoot = path.join(__dirname, "..", "..");
-    filteredEnv["PYTHONPATH"] = repoRoot + (filteredEnv["PYTHONPATH"] ? `:${filteredEnv["PYTHONPATH"]}` : "");
+    filteredEnv["PYTHONPATH"] = repoRoot + (filteredEnv["PYTHONPATH"] ? `${path.delimiter}${filteredEnv["PYTHONPATH"]}` : "");
 
     this.proc = cp.spawn(this.pythonPath, ["-u", scriptPath], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -115,9 +123,12 @@ export class BackendBridge {
       logger.warn("BackendBridge", "Python stderr", { text: chunk.trim() });
     });
 
-    // Handle process exit
+    // Handle process exit — guard with generation check
     this.proc.on("exit", (code, signal) => {
       logger.info("BackendBridge", "Process exited", { code, signal });
+      if (gen !== this.generation) {
+        return; // stale event from a previous process — ignore
+      }
       this.proc = null;
       this.ready = false;
 
@@ -141,6 +152,9 @@ export class BackendBridge {
 
     this.proc.on("error", (err) => {
       logger.error("BackendBridge", "Process spawn error", { error: err.message });
+      if (gen !== this.generation) {
+        return; // stale
+      }
       if (this.readyReject) {
         this.readyReject(err);
         this.readyResolve = null;
@@ -148,13 +162,20 @@ export class BackendBridge {
       }
     });
 
-    // Wait for ready (with timeout)
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`Backend did not become ready within ${READY_TIMEOUT_MS}ms`)),
-        READY_TIMEOUT_MS)
-    );
+    // Wait for ready (with timeout — timer is cleaned up in both paths)
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      readyTimer = setTimeout(
+        () => reject(new Error(`Backend did not become ready within ${READY_TIMEOUT_MS}ms`)),
+        READY_TIMEOUT_MS,
+      );
+    });
 
-    await Promise.race([this.readyPromise, timeout]);
+    try {
+      await Promise.race([this.readyPromise, timeout]);
+    } finally {
+      clearTimeout(readyTimer);
+    }
 
     // Send configuration
     this.send({
@@ -182,6 +203,15 @@ export class BackendBridge {
     this.disposed = true;
     this.send({ type: "shutdown" });
     setTimeout(() => this.killProcess(), 2000);
+  }
+
+  /**
+   * Cancel all in-flight completions.  Kills the backend process so
+   * Python threads are torn down immediately, then rejects every
+   * pending promise.
+   */
+  cancelAll(): void {
+    this.killProcess();
   }
 
   // ── Public API ────────────────────────────────────────────────────
@@ -441,5 +471,21 @@ export class BackendBridge {
       this.proc = null;
       this.ready = false;
     }
+
+    // Reject any dangling ready/pending promises so callers aren't stuck.
+    const cancelError = new Error("Backend process killed");
+    if (this.readyReject) {
+      this.readyReject(cancelError);
+      this.readyResolve = null;
+      this.readyReject = null;
+    }
+    for (const [, pending] of this.pendingCompletions) {
+      pending.reject(cancelError);
+    }
+    this.pendingCompletions.clear();
+    for (const [, pending] of this.pendingExecs) {
+      pending.reject(cancelError);
+    }
+    this.pendingExecs.clear();
   }
 }

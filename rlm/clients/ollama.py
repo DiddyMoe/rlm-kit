@@ -105,8 +105,6 @@ class OllamaClient(BaseLM):
         Synchronous completion call with retry/resilience.
 
         Args:
-
-        Args:
             prompt: Prompt as string or message list
             model: Model name (optional)
 

@@ -106,7 +106,9 @@ class VsCodeLM(BaseLM):
 
     # ── BaseLM interface ─────────────────────────────────────────────
 
-    def completion(self, prompt: str | dict[str, Any], model: str | None = None) -> str:
+    def completion(
+        self, prompt: str | list[dict[str, Any]] | dict[str, Any], model: str | None = None
+    ) -> str:
         if isinstance(prompt, list):
             # Flatten message list into a single string for the bridge
             parts = []
@@ -129,7 +131,9 @@ class VsCodeLM(BaseLM):
         # but we track call counts for usage summaries.
         return result
 
-    async def acompletion(self, prompt: str | dict[str, Any], model: str | None = None) -> str:
+    async def acompletion(
+        self, prompt: str | list[dict[str, Any]] | dict[str, Any], model: str | None = None
+    ) -> str:
         # The VS Code bridge is synchronous (stdin/stdout), so async
         # just delegates to the sync version.
         return self.completion(prompt, model)

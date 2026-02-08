@@ -53,7 +53,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── Chat participant (VS Code only) ────────────────────────────
   if (!isCursor()) {
-    participant = new RLMChatParticipant(context);
+    participant = new RLMChatParticipant(context, apiKeys);
+    context.subscriptions.push({ dispose: () => participant?.dispose() });
     try {
       await participant.register();
     } catch (err: unknown) {

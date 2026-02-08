@@ -16,6 +16,7 @@
 
 import * as vscode from "vscode";
 import { BackendBridge } from "./backendBridge";
+import { ApiKeyManager } from "./apiKeyManager";
 import { logger } from "./logger";
 import { hasChatApi, hasLanguageModelApi } from "./platform";
 import type { LlmProvider, ProviderConfig, ClientBackend } from "./types";
@@ -30,10 +31,14 @@ const SUB_LLM_TIMEOUT_MS = 300_000;
 export class RLMChatParticipant {
   private bridge: BackendBridge | null = null;
   private disposables: vscode.Disposable[] = [];
+  private readonly apiKeys: ApiKeyManager;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
-  ) {}
+    apiKeys: ApiKeyManager,
+  ) {
+    this.apiKeys = apiKeys;
+  }
 
   /**
    * Register the chat participant and start the backend.
@@ -100,7 +105,7 @@ export class RLMChatParticipant {
       const resolvedContext = await this.resolveReferences(request);
 
       // Set up LLM handler for builtin mode
-      const config = this.getConfig();
+      const config = await this.getConfig();
       if (config.provider === "builtin" && hasLanguageModelApi()) {
         bridge.setLlmHandler(async (prompt: string, _model: string | null) => {
           return this.handleSubLlmRequest(prompt, token);
@@ -112,15 +117,25 @@ export class RLMChatParticipant {
         stream.progress(`Iteration ${iteration}/${maxIterations}${text ? `: ${text}` : ""}`);
       });
 
+      // Cancel in-flight work if the user cancels the chat request
+      const cancelListener = token.onCancellationRequested(() => {
+        bridge.cancelAll();
+      });
+
       // Run completion
       stream.progress("Starting RLM reasoning...");
 
-      const result = await bridge.completion(
-        request.prompt,
-        resolvedContext || undefined,
-        request.prompt,
-        /* persistent */ false,
-      );
+      let result: string;
+      try {
+        result = await bridge.completion(
+          request.prompt,
+          resolvedContext || undefined,
+          request.prompt,
+          /* persistent */ false,
+        );
+      } finally {
+        cancelListener.dispose();
+      }
 
       // Stream the result
       stream.markdown(result);
@@ -279,7 +294,7 @@ export class RLMChatParticipant {
       return this.bridge;
     }
 
-    const config = this.getConfig();
+    const config = await this.getConfig();
     const pythonPath = vscode.workspace.getConfiguration("rlm").get<string>("pythonPath", "python3");
 
     this.bridge = new BackendBridge(pythonPath);
@@ -291,7 +306,7 @@ export class RLMChatParticipant {
   /**
    * Build the ProviderConfig from VS Code settings + stored API keys.
    */
-  private getConfig(): ProviderConfig {
+  private async getConfig(): Promise<ProviderConfig> {
     const settings = vscode.workspace.getConfiguration("rlm");
     const provider = settings.get<LlmProvider>("llmProvider", "builtin");
     const backend = settings.get<ClientBackend>("backend", "openai");
@@ -299,8 +314,12 @@ export class RLMChatParticipant {
     const baseUrl = settings.get<string>("baseUrl", "");
     const maxIterations = settings.get<number>("maxIterations", 30);
     const maxOutputChars = settings.get<number>("maxOutputChars", 20000);
-    const subBackend = settings.get<ClientBackend | undefined>("subBackend", undefined);
-    const subModel = settings.get<string | undefined>("subModel", undefined);
+    const rawSubBackend = settings.get<string>("subBackend", "");
+    const rawSubModel = settings.get<string>("subModel", "");
+
+    // Normalise empty-string settings to undefined
+    const subBackend: ClientBackend | undefined = rawSubBackend ? rawSubBackend as ClientBackend : undefined;
+    const subModel: string | undefined = rawSubModel || undefined;
 
     // Build backend kwargs
     const backendKwargs: Record<string, unknown> = {
@@ -309,13 +328,24 @@ export class RLMChatParticipant {
     if (baseUrl) {
       backendKwargs["base_url"] = baseUrl;
     }
-    // API key is injected at runtime by the Python side using env vars
-    // or we pass it explicitly if stored
+
+    // Inject API key from SecretStorage when in api_key mode
+    if (provider === "api_key") {
+      const apiKey = await this.apiKeys.get(backend);
+      if (apiKey) {
+        backendKwargs["api_key"] = apiKey;
+      }
+    }
 
     // Sub-backend kwargs
     let subBackendKwargs: Record<string, unknown> | undefined;
     if (subBackend && subModel) {
       subBackendKwargs = { model_name: subModel };
+      // Inject sub-backend API key too
+      const subApiKey = await this.apiKeys.get(subBackend);
+      if (subApiKey) {
+        subBackendKwargs["api_key"] = subApiKey;
+      }
     }
 
     return {

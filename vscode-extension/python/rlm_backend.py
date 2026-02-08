@@ -51,12 +51,20 @@ threading.Thread(target=_watch_parent, daemon=True).start()
 
 # ── JSON-over-newline IO ─────────────────────────────────────────────
 
+_stdout_lock = threading.Lock()
+
 
 def send_msg(msg: dict[str, Any]) -> None:
-    """Write a JSON message to stdout (to the extension host)."""
+    """Write a JSON message to stdout (to the extension host).
+
+    Thread-safe: multiple threads (completion, execute, VsCodeLM round-trips)
+    may call this concurrently.  The lock prevents interleaved writes that
+    would produce corrupt JSON lines on the TS side.
+    """
     line = json.dumps(msg, default=str) + "\n"
-    sys.stdout.write(line)
-    sys.stdout.flush()
+    with _stdout_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def send_error(nonce: str | None, error: str) -> None:
