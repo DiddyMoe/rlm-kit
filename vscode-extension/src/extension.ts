@@ -86,9 +86,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.error("Extension", "Failed to register participant", { error: msg });
     }
   } else {
-    logger.info("Extension", "Running in Cursor — MCP gateway is the integration path");
+    logger.info("Extension", "Running in Cursor — chat participant not available");
     vscode.window.showInformationMessage(
-      "RLM: Cursor detected. Use the MCP gateway (@rlm tools) for RLM integration.",
+      "RLM: Cursor detected. Use the api_key provider with a direct backend for RLM integration.",
     );
   }
 
