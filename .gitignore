@@ -216,3 +216,11 @@ __marimo__/
 
 # RLM audit / enforcement state (generated)
 audit_state.json
+
+# RLM workspace state
+.rlm_workspace/
+
+# VS Code extension build output
+vscode-extension/out/
+vscode-extension/node_modules/
+vscode-extension/*.vsix

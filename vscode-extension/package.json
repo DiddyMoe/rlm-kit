@@ -1,0 +1,219 @@
+{
+  "name": "rlm-chat",
+  "displayName": "RLM - Recursive Language Models",
+  "description": "Integrates Recursive Language Models into VS Code chat. Routes prompts through RLM's REPL environment for recursive reasoning over long contexts.",
+  "version": "0.1.0",
+  "publisher": "rlm-local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "rlm-chat.rlm",
+        "name": "rlm",
+        "fullName": "Recursive Language Model",
+        "description": "Recursive reasoning with Python REPL execution — analyzes, codes, reasons, searches, and answers any question via iterative computation",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "analyze",
+            "description": "Analyze a long context using recursive decomposition"
+          },
+          {
+            "name": "summarize",
+            "description": "Recursively summarize a large document or dataset"
+          },
+          {
+            "name": "search",
+            "description": "Deep search across a large context for specific information"
+          }
+        ],
+        "disambiguation": [
+          {
+            "category": "long-context",
+            "description": "The user wants to analyze, search, or reason over a very large context, dataset, or document. The user wants recursive decomposition of a problem.",
+            "examples": [
+              "Analyze all 500 files in this project and find security issues",
+              "Summarize this entire codebase",
+              "Search through all these documents to find references to X",
+              "Compare these two large files and find differences"
+            ]
+          },
+          {
+            "category": "code-analysis",
+            "description": "The user wants to analyze code, debug, compute, run calculations, write algorithms, process data, or reason about programming problems using executable code.",
+            "examples": [
+              "Write a function that sorts a list",
+              "Debug this algorithm",
+              "Calculate the time complexity of this code",
+              "Parse this JSON and extract all email addresses"
+            ]
+          },
+          {
+            "category": "data-processing",
+            "description": "The user wants to process, transform, count, filter, aggregate, or compute over data using Python.",
+            "examples": [
+              "How many unique user IDs are in this dataset?",
+              "Count all the TODO comments across the project",
+              "Calculate the average response time from these logs"
+            ]
+          },
+          {
+            "category": "reasoning",
+            "description": "The user wants step-by-step reasoning, problem solving, or logical analysis that benefits from iterative thinking.",
+            "examples": [
+              "Solve this math problem step by step",
+              "What are the trade-offs between these architectures?",
+              "Break down this complex problem"
+            ]
+          }
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "rlm-chat.openChat",
+        "title": "Open RLM Chat",
+        "category": "RLM"
+      },
+      {
+        "command": "rlm-chat.newSession",
+        "title": "New RLM Chat Session",
+        "category": "RLM"
+      },
+      {
+        "command": "rlm-chat.openLog",
+        "title": "Open Debug Log",
+        "category": "RLM"
+      },
+      {
+        "command": "rlm-chat.setApiKey",
+        "title": "Set API Key",
+        "category": "RLM"
+      },
+      {
+        "command": "rlm-chat.clearApiKey",
+        "title": "Clear All API Keys",
+        "category": "RLM"
+      },
+      {
+        "command": "rlm-chat.showProvider",
+        "title": "Show Current Provider",
+        "category": "RLM"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "rlm-chat.openChat",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r"
+      }
+    ],
+    "configuration": {
+      "title": "RLM",
+      "properties": {
+        "rlm.llmProvider": {
+          "type": "string",
+          "default": "builtin",
+          "enum": ["builtin", "api_key"],
+          "enumDescriptions": [
+            "Use VS Code's built-in Language Model API (Copilot subscription)",
+            "Use direct API keys with an LLM provider (OpenAI, Anthropic, etc.)"
+          ],
+          "description": "How RLM obtains LLM completions. 'builtin' uses your Copilot subscription, 'api_key' uses your own API keys."
+        },
+        "rlm.backend": {
+          "type": "string",
+          "default": "openai",
+          "enum": ["openai", "anthropic", "azure_openai", "gemini", "openrouter", "portkey", "vercel", "vllm", "litellm"],
+          "description": "LLM backend to use when llmProvider is 'api_key'. Ignored in builtin mode."
+        },
+        "rlm.model": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "Model name for the root LLM. Used in both builtin and api_key modes."
+        },
+        "rlm.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Custom base URL for the LLM API. Only used in api_key mode."
+        },
+        "rlm.subBackend": {
+          "type": "string",
+          "default": "",
+          "enum": ["", "openai", "anthropic", "azure_openai", "gemini", "openrouter", "portkey", "vercel", "vllm", "litellm"],
+          "description": "Optional: separate backend for sub-LLM calls (recursive queries). Leave empty to use the same backend."
+        },
+        "rlm.subModel": {
+          "type": "string",
+          "default": "",
+          "description": "Optional: model name for sub-LLM calls. Leave empty to use the same model."
+        },
+        "rlm.maxIterations": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum number of RLM REPL iterations before forcing a final answer."
+        },
+        "rlm.maxOutputChars": {
+          "type": "number",
+          "default": 20000,
+          "description": "Maximum characters of REPL output to feed back to the model per iteration."
+        },
+        "rlm.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to the Python interpreter used for the RLM backend."
+        },
+        "rlm.showIterationDetails": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show detailed iteration progress (code blocks and outputs) in chat."
+        },
+        "rlm.logLevel": {
+          "type": "string",
+          "default": "debug",
+          "enum": ["debug", "info", "warn", "error", "off"],
+          "enumDescriptions": [
+            "Log everything (most verbose)",
+            "Log info, warnings, and errors",
+            "Log warnings and errors only",
+            "Log errors only",
+            "Disable logging"
+          ],
+          "description": "Minimum severity level for the debug log file."
+        },
+        "rlm.logMaxSizeMB": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Maximum debug log file size in MB. Oldest entries are trimmed when exceeded."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.99.0",
+    "typescript": "^5.4.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  }
+}

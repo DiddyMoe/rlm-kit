@@ -83,6 +83,20 @@
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             }
+        },
+        {
+            "name": "Run VS Code Extension",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}/vscode-extension",
+                "--disable-extension", "ms-python.python",
+                "--disable-extension", "ms-python.vscode-pylance"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/vscode-extension/out/**/*.js"
+            ],
+            "preLaunchTask": "npm: watch - vscode-extension"
         }
     ]
 }

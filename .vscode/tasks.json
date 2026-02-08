@@ -139,6 +139,18 @@
                 "focus": false,
                 "panel": "shared"
             }
+        },
+        {
+            "label": "npm: watch - vscode-extension",
+            "type": "npm",
+            "script": "watch",
+            "path": "vscode-extension",
+            "problemMatcher": "$tsc-watch",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "never"
+            },
+            "group": "build"
         }
     ]
 }

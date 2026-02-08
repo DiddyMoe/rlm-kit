@@ -12,6 +12,7 @@ ClientBackend = Literal[
     "anthropic",
     "azure_openai",
     "gemini",
+    "vscode_lm",
 ]
 EnvironmentType = Literal["local", "docker", "modal", "prime", "daytona"]
 

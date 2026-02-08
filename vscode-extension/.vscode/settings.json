@@ -1,0 +1,8 @@
+{
+  "python.terminal.activateEnvironment": false,
+  "python.defaultInterpreterPath": "python3",
+  "python.terminal.activateEnvInCurrentTerminal": false,
+  "python.analysis.autoSearchPaths": false,
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python-envs.pythonProjects": []
+}

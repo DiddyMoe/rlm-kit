@@ -12,7 +12,6 @@ import requests
 from dotenv import load_dotenv
 
 from rlm.clients.base_lm import BaseLM
-from rlm.core.provider_mediation import require_provider_mediation
 from rlm.core.retry import retry_with_backoff
 from rlm.core.types import ModelUsageSummary, UsageSummary
 
@@ -101,13 +100,11 @@ class OllamaClient(BaseLM):
         response.raise_for_status()
         return response.json()
 
-    @require_provider_mediation
     def completion(self, prompt: str | list[dict[str, Any]], model: str | None = None) -> str:
         """
         Synchronous completion call with retry/resilience.
 
-        R2 Compliance: This method is decorated with @require_provider_mediation
-        which blocks direct provider calls unless in RLM context or MCP client sampling context.
+        Args:
 
         Args:
             prompt: Prompt as string or message list

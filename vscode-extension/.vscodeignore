@@ -1,0 +1,9 @@
+src/**
+.vscode/**
+.vscode-test/**
+node_modules/**
+tsconfig.json
+eslint.config.mjs
+*.map
+**/*.ts
+!out/**
