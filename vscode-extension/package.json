@@ -123,7 +123,10 @@
         "rlm.llmProvider": {
           "type": "string",
           "default": "builtin",
-          "enum": ["builtin", "api_key"],
+          "enum": [
+            "builtin",
+            "api_key"
+          ],
           "enumDescriptions": [
             "Use VS Code's built-in Language Model API (Copilot subscription)",
             "Use direct API keys with an LLM provider (OpenAI, Anthropic, etc.)"
@@ -133,7 +136,17 @@
         "rlm.backend": {
           "type": "string",
           "default": "openai",
-          "enum": ["openai", "anthropic", "azure_openai", "gemini", "openrouter", "portkey", "vercel", "vllm", "litellm"],
+          "enum": [
+            "openai",
+            "anthropic",
+            "azure_openai",
+            "gemini",
+            "openrouter",
+            "portkey",
+            "vercel",
+            "vllm",
+            "litellm"
+          ],
           "description": "LLM backend to use when llmProvider is 'api_key'. Ignored in builtin mode."
         },
         "rlm.model": {
@@ -149,7 +162,18 @@
         "rlm.subBackend": {
           "type": "string",
           "default": "",
-          "enum": ["", "openai", "anthropic", "azure_openai", "gemini", "openrouter", "portkey", "vercel", "vllm", "litellm"],
+          "enum": [
+            "",
+            "openai",
+            "anthropic",
+            "azure_openai",
+            "gemini",
+            "openrouter",
+            "portkey",
+            "vercel",
+            "vllm",
+            "litellm"
+          ],
           "description": "Optional: separate backend for sub-LLM calls (recursive queries). Leave empty to use the same backend."
         },
         "rlm.subModel": {
@@ -182,7 +206,13 @@
         "rlm.logLevel": {
           "type": "string",
           "default": "debug",
-          "enum": ["debug", "info", "warn", "error", "off"],
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "off"
+          ],
           "enumDescriptions": [
             "Log everything (most verbose)",
             "Log info, warnings, and errors",
@@ -214,11 +244,11 @@
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.99.0",
-    "typescript": "^5.4.0",
     "eslint": "^9.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.0.0",
-    "@typescript-eslint/parser": "^8.0.0"
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.54.0"
   }
 }
