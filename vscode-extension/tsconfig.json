@@ -11,6 +11,8 @@
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
     "exactOptionalPropertyTypes": false,
     "esModuleInterop": true,
     "skipLibCheck": true,

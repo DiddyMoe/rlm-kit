@@ -12,6 +12,7 @@
  */
 
 import * as cp from "child_process";
+import * as crypto from "crypto";
 import * as path from "path";
 import { logger } from "./logger";
 import type {
@@ -87,17 +88,30 @@ export class BackendBridge {
       this.readyReject = reject;
     });
 
-    // Filter environment: remove VS Code internals that confuse Python
+    // Filter environment: remove VS Code internals and sensitive vars
     const filteredEnv: Record<string, string> = {};
+    const BLOCKED_PREFIXES = [
+      "ELECTRON_", "VSCODE_", "AWS_", "AZURE_", "GCP_",
+      "GITHUB_", "GOOGLE_APPLICATION", "DATABASE_",
+    ];
+    const BLOCKED_SUFFIXES = ["_TOKEN", "_SECRET", "_PASSWORD", "_CREDENTIALS"];
+    const BLOCKED_EXACT = new Set(["CHROME_DESKTOP"]);
+
     for (const [k, v] of Object.entries(process.env)) {
-      if (
-        v !== undefined &&
-        !k.startsWith("ELECTRON_") &&
-        !k.startsWith("VSCODE_") &&
-        k !== "CHROME_DESKTOP"
-      ) {
-        filteredEnv[k] = v;
+      if (v === undefined) {
+        continue;
       }
+      const upper = k.toUpperCase();
+      if (BLOCKED_EXACT.has(upper)) {
+        continue;
+      }
+      if (BLOCKED_PREFIXES.some((p) => upper.startsWith(p))) {
+        continue;
+      }
+      if (BLOCKED_SUFFIXES.some((s) => upper.endsWith(s))) {
+        continue;
+      }
+      filteredEnv[k] = v;
     }
 
     // Ensure the rlm package is importable
@@ -453,12 +467,7 @@ export class BackendBridge {
   // ── Utilities ─────────────────────────────────────────────────────
 
   private generateNonce(): string {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let result = "";
-    for (let i = 0; i < 16; i++) {
-      result += chars[Math.floor(Math.random() * chars.length)];
-    }
-    return result;
+    return crypto.randomUUID();
   }
 
   private killProcess(): void {

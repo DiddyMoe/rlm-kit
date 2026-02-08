@@ -194,10 +194,15 @@
         },
         "rlm.logMaxSizeMB": {
           "type": "number",
-          "default": 5,
+          "default": 10,
           "minimum": 1,
           "maximum": 50,
           "description": "Maximum debug log file size in MB. Oldest entries are trimmed when exceeded."
+        },
+        "rlm.tracingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable detailed JSONL tracing. When disabled, only warnings and errors are logged."
         }
       }
     }
