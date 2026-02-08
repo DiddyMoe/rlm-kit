@@ -14,6 +14,7 @@
  *  - rlm-chat.showProvider    — show current LLM provider info
  */
 
+import * as path from "path";
 import * as vscode from "vscode";
 import { logger } from "./logger";
 import { ConfigService } from "./configService";
@@ -43,7 +44,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const cfg = configService.get();
 
   // ── Logger init ─────────────────────────────────────────────────
-  logger.init(context.globalStorageUri.fsPath, cfg.logLevel, cfg.logMaxSizeMB);
+  // Prefer workspace-local logs/ directory for discoverability; fall back
+  // to global storage when no workspace folder is open.
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const logDir = workspaceRoot ? path.join(workspaceRoot, "logs") : context.globalStorageUri.fsPath;
+  logger.init(logDir, cfg.logLevel, cfg.logMaxSizeMB);
   logger.setTracingEnabled(cfg.tracingEnabled);
 
   const editor = detectEditor();

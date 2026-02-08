@@ -18,7 +18,7 @@ function createTempDir(): string {
 }
 
 function readLog(logDir: string): string[] {
-  const logPath = path.join(logDir, "rlm.jsonl");
+  const logPath = path.join(logDir, "trace.jsonl");
   if (!fs.existsSync(logPath)) {
     return [];
   }
@@ -195,7 +195,7 @@ function testRotation(): void {
     }
 
     // File should still exist and be valid JSONL
-    const logPath = path.join(dir, "rlm.jsonl");
+    const logPath = path.join(dir, "trace.jsonl");
     assert.ok(fs.existsSync(logPath));
 
     const content = fs.readFileSync(logPath, "utf-8");

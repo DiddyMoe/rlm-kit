@@ -146,7 +146,7 @@ class Logger {
     this.maxSizeBytes = maxMb * 1024 * 1024;
 
     fs.mkdirSync(logDir, { recursive: true });
-    this.logPath = path.join(logDir, "rlm.jsonl");
+    this.logPath = path.join(logDir, "trace.jsonl");
 
     try {
       this.fd = fs.openSync(this.logPath, "a");
