@@ -54,7 +54,7 @@ class LMRequest:
             prompt=data.get("prompt"),
             prompts=data.get("prompts"),
             model=data.get("model"),
-            depth=data.get("depth", -1),  # TODO: Default should throw an error
+            depth=data.get("depth", -1),  # -1 signals "not provided"
         )
 
 
