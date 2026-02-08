@@ -40,9 +40,9 @@ export interface ProviderConfig {
   readonly backend: ClientBackend;
   readonly model: string;
   readonly backendKwargs: Record<string, unknown>;
-  readonly subBackend?: ClientBackend;
-  readonly subModel?: string;
-  readonly subBackendKwargs?: Record<string, unknown>;
+  readonly subBackend?: ClientBackend | undefined;
+  readonly subModel?: string | undefined;
+  readonly subBackendKwargs?: Record<string, unknown> | undefined;
   readonly maxIterations: number;
   readonly maxOutputChars: number;
 }
@@ -64,8 +64,8 @@ export interface ConfigureMessage {
   readonly backend: ClientBackend;
   readonly model: string;
   readonly backendKwargs: Record<string, unknown>;
-  readonly subBackend?: ClientBackend;
-  readonly subBackendKwargs?: Record<string, unknown>;
+  readonly subBackend?: ClientBackend | undefined;
+  readonly subBackendKwargs?: Record<string, unknown> | undefined;
   readonly maxIterations: number;
   readonly maxOutputChars: number;
 }
@@ -74,9 +74,9 @@ export interface CompletionMessage {
   readonly type: "completion";
   readonly nonce: string;
   readonly prompt: string;
-  readonly context?: string;
-  readonly rootPrompt?: string;
-  readonly persistent?: boolean;
+  readonly context?: string | undefined;
+  readonly rootPrompt?: string | undefined;
+  readonly persistent?: boolean | undefined;
 }
 
 export interface ExecuteMessage {
@@ -88,8 +88,8 @@ export interface ExecuteMessage {
 export interface LlmResponseMessage {
   readonly type: "llm_response";
   readonly nonce: string;
-  readonly text?: string;
-  readonly error?: string;
+  readonly text?: string | undefined;
+  readonly error?: string | undefined;
 }
 
 export interface PingMessage {
