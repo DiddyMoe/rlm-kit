@@ -3,7 +3,7 @@
  *
  * Activation:
  *  - VS Code: registers the @rlm chat participant (builtin + api_key modes)
- *  - Cursor:  logs a message; Cursor users interact via MCP gateway
+ *  - Cursor:  logs a message directing users to api_key mode
  *
  * Commands:
  *  - rlm-chat.openChat        — focus the chat panel
