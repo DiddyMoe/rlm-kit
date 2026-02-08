@@ -1,0 +1,20 @@
+{
+  "phases": {
+    "0": { "completed": true, "timestamp": "2025-02-08", "artifacts": ["docs/index/setup_matrix.md", "docs/integration/ide_matrix.md", "docs/orchestrator/state.json"] },
+    "1": { "completed": true, "timestamp": "2025-02-08", "artifacts": ["docs/INDEX.md", "docs/index/project_index.json", "docs/index/trajectory_logging_coverage.md", "docs/integration/ide_touchpoints.md"] },
+    "2": { "completed": true, "timestamp": "2025-02-08", "artifacts": ["docs/orchestrator/proposal_prioritized.md"] },
+    "2a": { "completed": true, "timestamp": "2025-02-08", "artifacts": ["docs/research/landscape.md", "docs/research/bibliography.md", "docs/research/recommendations_map.md", "docs/research/benchmarks_to_run.md"] },
+    "2b": { "completed": true, "timestamp": "2025-02-08", "artifacts": ["docs/quality/bug_backlog.md", "docs/quality/failure_modes.md", "docs/quality/observability_gaps.md", "docs/quality/fix_now.md"] }
+  },
+  "env": {
+    "python": "3.11",
+    "packager": "uv"
+  },
+  "recommendations": {
+    "proposed": [],
+    "approved": [],
+    "applied": [],
+    "verified": []
+  },
+  "last_run": "2025-02-08"
+}
