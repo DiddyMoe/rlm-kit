@@ -2,20 +2,21 @@
  * RLM VS Code Extension — entry point.
  *
  * Activation:
- *  • VS Code: registers the @rlm chat participant (builtin + api_key modes)
- *  • Cursor:  logs a message; Cursor users interact via MCP gateway
+ *  - VS Code: registers the @rlm chat participant (builtin + api_key modes)
+ *  - Cursor:  logs a message; Cursor users interact via MCP gateway
  *
  * Commands:
- *  • rlm-chat.openChat        — focus the chat panel
- *  • rlm-chat.newSession      — clear REPL state and start fresh
- *  • rlm-chat.openLog         — open the JSONL debug log
- *  • rlm-chat.setApiKey       — securely store an API key
- *  • rlm-chat.clearApiKey     — remove stored API keys
- *  • rlm-chat.showProvider    — show current LLM provider info
+ *  - rlm-chat.openChat        — focus the chat panel
+ *  - rlm-chat.newSession      — clear REPL state and start fresh
+ *  - rlm-chat.openLog         — open the JSONL debug log
+ *  - rlm-chat.setApiKey       — securely store an API key
+ *  - rlm-chat.clearApiKey     — remove stored API keys
+ *  - rlm-chat.showProvider    — show current LLM provider info
  */
 
 import * as vscode from "vscode";
 import { logger } from "./logger";
+import { ConfigService } from "./configService";
 import { RLMChatParticipant } from "./rlmParticipant";
 import { ApiKeyManager } from "./apiKeyManager";
 import { detectEditor, isCursor } from "./platform";
@@ -36,11 +37,14 @@ const KNOWN_BACKENDS: readonly ClientBackend[] = [
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // ── Config service init ─────────────────────────────────────────
+  const configService = ConfigService.instance;
+  configService.init(context);
+  const cfg = configService.get();
+
   // ── Logger init ─────────────────────────────────────────────────
-  const settings = vscode.workspace.getConfiguration("rlm");
-  const logLevel = settings.get<string>("logLevel", "debug");
-  const logMaxMb = settings.get<number>("logMaxSizeMB", 5);
-  logger.init(context.globalStorageUri.fsPath, logLevel, logMaxMb);
+  logger.init(context.globalStorageUri.fsPath, cfg.logLevel, cfg.logMaxSizeMB);
+  logger.setTracingEnabled(cfg.tracingEnabled);
 
   const editor = detectEditor();
   logger.info("Extension", "Activating RLM extension", {
@@ -48,12 +52,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     version: context.extension.packageJSON?.version ?? "unknown",
   });
 
+  // ── React to config changes ─────────────────────────────────────
+  configService.onDidChange((newCfg) => {
+    logger.setLevel(newCfg.logLevel);
+    logger.setTracingEnabled(newCfg.tracingEnabled);
+    logger.info("Extension", "Configuration changed");
+
+    // Restart backend on provider/backend/model/python changes
+    if (participant) {
+      participant.restart().catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error("Extension", "Failed to restart backend after config change", { error: msg });
+      });
+    }
+  });
+
   // ── API key manager ─────────────────────────────────────────────
   const apiKeys = new ApiKeyManager(context.secrets);
 
   // ── Chat participant (VS Code only) ────────────────────────────
   if (!isCursor()) {
-    participant = new RLMChatParticipant(context, apiKeys);
+    participant = new RLMChatParticipant(context, apiKeys, configService);
     context.subscriptions.push({ dispose: () => participant?.dispose() });
     try {
       await participant.register();
@@ -96,7 +115,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (backend) {
         await apiKeys.promptAndStore(backend);
-        // Restart backend to pick up new key
         if (participant) {
           await participant.restart();
         }
@@ -111,38 +129,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand("rlm-chat.showProvider", () => {
-      const provider = settings.get<string>("llmProvider", "builtin");
-      const backend = settings.get<string>("backend", "openai");
-      const model = settings.get<string>("model", "gpt-4o");
+      const current = configService.get();
       vscode.window.showInformationMessage(
-        `RLM Provider: ${provider} | Backend: ${backend} | Model: ${model}`,
+        `RLM Provider: ${current.provider} | Backend: ${current.backend} | Model: ${current.model}`,
       );
-    }),
-  );
-
-  // ── Settings change listener ────────────────────────────────────
-
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration(async (e) => {
-      if (e.affectsConfiguration("rlm.logLevel")) {
-        const newLevel = vscode.workspace.getConfiguration("rlm").get<string>("logLevel", "debug");
-        logger.setLevel(newLevel);
-      }
-
-      // Restart backend on provider/backend/model changes
-      if (
-        e.affectsConfiguration("rlm.llmProvider") ||
-        e.affectsConfiguration("rlm.backend") ||
-        e.affectsConfiguration("rlm.model") ||
-        e.affectsConfiguration("rlm.baseUrl") ||
-        e.affectsConfiguration("rlm.maxIterations") ||
-        e.affectsConfiguration("rlm.pythonPath")
-      ) {
-        logger.info("Extension", "Configuration changed, restarting backend");
-        if (participant) {
-          await participant.restart();
-        }
-      }
     }),
   );
 

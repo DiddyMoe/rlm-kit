@@ -1,11 +1,11 @@
 /**
  * RLM Chat Participant — thin bridge between VS Code's Chat API and
- * the Python RLM backend.
+ * the Python RLM backend, routed through the Orchestrator.
  *
  * This module:
  *  1. Registers the `@rlm` chat participant (VS Code only — skipped on Cursor)
  *  2. Resolves file/workspace references from the chat context
- *  3. Delegates the full completion to BackendBridge (Python runs the RLM loop)
+ *  3. Delegates to the Orchestrator, which enforces budgets and emits spans
  *  4. In builtin mode, relays sub-LLM requests from Python → vscode.lm → Python
  *  5. Streams progress and the final answer back to the chat UI
  *
@@ -16,10 +16,12 @@
 
 import * as vscode from "vscode";
 import { BackendBridge } from "./backendBridge";
+import { Orchestrator } from "./orchestrator";
 import { ApiKeyManager } from "./apiKeyManager";
+import { ConfigService } from "./configService";
 import { logger } from "./logger";
 import { hasChatApi, hasLanguageModelApi } from "./platform";
-import type { LlmProvider, ProviderConfig, ClientBackend } from "./types";
+import type { ProviderConfig } from "./types";
 
 // ── Constants ───────────────────────────────────────────────────────
 
@@ -30,14 +32,18 @@ const SUB_LLM_TIMEOUT_MS = 300_000;
 
 export class RLMChatParticipant {
   private bridge: BackendBridge | null = null;
+  private orchestrator: Orchestrator | null = null;
   private disposables: vscode.Disposable[] = [];
   private readonly apiKeys: ApiKeyManager;
+  private readonly configService: ConfigService;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     apiKeys: ApiKeyManager,
+    configService: ConfigService,
   ) {
     this.apiKeys = apiKeys;
+    this.configService = configService;
   }
 
   /**
@@ -52,7 +58,8 @@ export class RLMChatParticipant {
 
     const participant = vscode.chat.createChatParticipant(
       PARTICIPANT_ID,
-      (request, context, stream, token) => this.handleRequest(request, context, stream, token),
+      (request, chatContext, stream, token) =>
+        this.handleRequest(request, chatContext, stream, token),
     );
 
     participant.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "icon.png");
@@ -60,7 +67,6 @@ export class RLMChatParticipant {
     this.disposables.push(participant);
     logger.info("RLMParticipant", "Chat participant registered");
 
-    // Start backend eagerly
     await this.ensureBackend();
   }
 
@@ -68,6 +74,7 @@ export class RLMChatParticipant {
   dispose(): void {
     this.bridge?.dispose();
     this.bridge = null;
+    this.orchestrator = null;
     for (const d of this.disposables) {
       d.dispose();
     }
@@ -79,6 +86,7 @@ export class RLMChatParticipant {
     logger.info("RLMParticipant", "Restarting backend");
     this.bridge?.dispose();
     this.bridge = null;
+    this.orchestrator = null;
     await this.ensureBackend();
   }
 
@@ -98,51 +106,51 @@ export class RLMChatParticipant {
     });
 
     try {
-      // Ensure backend is running
-      const bridge = await this.ensureBackend();
+      const { bridge, orchestrator } = await this.ensureBackend();
+      const cfg = this.configService.get();
 
       // Resolve references (files, selections, etc.)
       const resolvedContext = await this.resolveReferences(request);
 
       // Set up LLM handler for builtin mode
-      const config = await this.getConfig();
-      if (config.provider === "builtin" && hasLanguageModelApi()) {
+      if (cfg.provider === "builtin" && hasLanguageModelApi()) {
         bridge.setLlmHandler(async (prompt: string, _model: string | null) => {
           return this.handleSubLlmRequest(prompt, token);
         });
       }
-
-      // Set up progress handler
-      bridge.setProgressHandler((_nonce, iteration, maxIterations, text) => {
-        stream.progress(`Iteration ${iteration}/${maxIterations}${text ? `: ${text}` : ""}`);
-      });
 
       // Cancel in-flight work if the user cancels the chat request
       const cancelListener = token.onCancellationRequested(() => {
         bridge.cancelAll();
       });
 
-      // Run completion
       stream.progress("Starting RLM reasoning...");
 
-      let result: string;
+      let result;
       try {
-        result = await bridge.completion(
-          request.prompt,
-          resolvedContext || undefined,
-          request.prompt,
-          /* persistent */ false,
+        result = await orchestrator.run(
+          {
+            prompt: request.prompt,
+            context: resolvedContext ?? undefined,
+            rootPrompt: request.prompt,
+            persistent: false,
+          },
+          cfg,
+          (iteration, maxIterations, text) => {
+            stream.progress(`Iteration ${iteration}/${maxIterations}${text ? `: ${text}` : ""}`);
+          },
         );
       } finally {
         cancelListener.dispose();
       }
 
-      // Stream the result
-      stream.markdown(result);
+      stream.markdown(result.text);
 
       logger.info("RLMParticipant", "Request completed", {
         durationMs: Date.now() - startTime,
-        resultLength: result.length,
+        resultLength: result.text.length,
+        spanId: result.spanId,
+        iterationsUsed: result.iterationsUsed,
       });
 
       return {};
@@ -162,10 +170,6 @@ export class RLMChatParticipant {
 
   // ── Sub-LLM handler (builtin mode) ───────────────────────────────
 
-  /**
-   * Handle a sub-LLM request from Python by calling the VS Code Language Model API.
-   * This is only active in "builtin" mode when vscode.lm is available.
-   */
   private async handleSubLlmRequest(
     prompt: string,
     token: vscode.CancellationToken,
@@ -178,11 +182,9 @@ export class RLMChatParticipant {
       return "[ERROR: Operation cancelled by user]";
     }
 
-    // Select a model
     const models = await vscode.lm.selectChatModels({ family: "gpt-4o" });
     const model = models[0];
     if (!model) {
-      // Fallback: try any available model
       const allModels = await vscode.lm.selectChatModels();
       if (allModels.length === 0) {
         throw new Error("No language models available. Check your Copilot subscription.");
@@ -242,10 +244,6 @@ export class RLMChatParticipant {
 
   // ── Reference resolution ──────────────────────────────────────────
 
-  /**
-   * Resolve all chat references (files, selections, etc.) into a single
-   * context string that gets loaded into the Python REPL as the `context` variable.
-   */
   private async resolveReferences(request: vscode.ChatRequest): Promise<string | null> {
     if (!request.references || request.references.length === 0) {
       return null;
@@ -265,7 +263,6 @@ export class RLMChatParticipant {
           const text = doc.getText(value.range);
           parts.push(`--- Selection from ${value.uri.fsPath} ---\n${text}`);
         } else if (typeof value === "object" && value !== null && "uri" in value) {
-          // ChatReferenceBinaryData or similar
           const uri = (value as { uri: vscode.Uri }).uri;
           if (uri instanceof vscode.Uri) {
             const doc = await vscode.workspace.openTextDocument(uri);
@@ -285,79 +282,61 @@ export class RLMChatParticipant {
 
   // ── Backend management ────────────────────────────────────────────
 
-  /**
-   * Ensure the backend bridge is running with the current configuration.
-   * Creates it on first call, restarts if config has changed.
-   */
-  private async ensureBackend(): Promise<BackendBridge> {
-    if (this.bridge?.isAlive()) {
-      return this.bridge;
+  private async ensureBackend(): Promise<{
+    bridge: BackendBridge;
+    orchestrator: Orchestrator;
+  }> {
+    if (this.bridge?.isAlive() && this.orchestrator) {
+      return { bridge: this.bridge, orchestrator: this.orchestrator };
     }
 
-    const config = await this.getConfig();
-    const pythonPath = vscode.workspace.getConfiguration("rlm").get<string>("pythonPath", "python3");
+    const config = await this.getProviderConfig();
+    const cfg = this.configService.get();
 
-    this.bridge = new BackendBridge(pythonPath);
+    this.bridge = new BackendBridge(cfg.pythonPath);
     await this.bridge.start(config);
 
-    return this.bridge;
+    this.orchestrator = new Orchestrator(this.bridge);
+
+    return { bridge: this.bridge, orchestrator: this.orchestrator };
   }
 
-  /**
-   * Build the ProviderConfig from VS Code settings + stored API keys.
-   */
-  private async getConfig(): Promise<ProviderConfig> {
-    const settings = vscode.workspace.getConfiguration("rlm");
-    const provider = settings.get<LlmProvider>("llmProvider", "builtin");
-    const backend = settings.get<ClientBackend>("backend", "openai");
-    const model = settings.get<string>("model", "gpt-4o");
-    const baseUrl = settings.get<string>("baseUrl", "");
-    const maxIterations = settings.get<number>("maxIterations", 30);
-    const maxOutputChars = settings.get<number>("maxOutputChars", 20000);
-    const rawSubBackend = settings.get<string>("subBackend", "");
-    const rawSubModel = settings.get<string>("subModel", "");
+  private async getProviderConfig(): Promise<ProviderConfig> {
+    const cfg = this.configService.get();
 
-    // Normalise empty-string settings to undefined
-    const subBackend: ClientBackend | undefined = rawSubBackend ? rawSubBackend as ClientBackend : undefined;
-    const subModel: string | undefined = rawSubModel || undefined;
-
-    // Build backend kwargs
     const backendKwargs: Record<string, unknown> = {
-      model_name: model,
+      model_name: cfg.model,
     };
-    if (baseUrl) {
-      backendKwargs["base_url"] = baseUrl;
+    if (cfg.baseUrl) {
+      backendKwargs["base_url"] = cfg.baseUrl;
     }
 
-    // Inject API key from SecretStorage when in api_key mode
-    if (provider === "api_key") {
-      const apiKey = await this.apiKeys.get(backend);
+    if (cfg.provider === "api_key") {
+      const apiKey = await this.apiKeys.get(cfg.backend);
       if (apiKey) {
         backendKwargs["api_key"] = apiKey;
       }
     }
 
-    // Sub-backend kwargs
     let subBackendKwargs: Record<string, unknown> | undefined;
-    if (subBackend && subModel) {
-      subBackendKwargs = { model_name: subModel };
-      // Inject sub-backend API key too
-      const subApiKey = await this.apiKeys.get(subBackend);
+    if (cfg.subBackend && cfg.subModel) {
+      subBackendKwargs = { model_name: cfg.subModel };
+      const subApiKey = await this.apiKeys.get(cfg.subBackend);
       if (subApiKey) {
         subBackendKwargs["api_key"] = subApiKey;
       }
     }
 
     return {
-      provider,
-      backend: provider === "builtin" ? "vscode_lm" : backend,
-      model,
+      provider: cfg.provider,
+      backend: cfg.provider === "builtin" ? "vscode_lm" : cfg.backend,
+      model: cfg.model,
       backendKwargs,
-      subBackend,
-      subModel,
+      subBackend: cfg.subBackend,
+      subModel: cfg.subModel,
       subBackendKwargs,
-      maxIterations,
-      maxOutputChars,
+      maxIterations: cfg.maxIterations,
+      maxOutputChars: cfg.maxOutputChars,
     };
   }
 }
