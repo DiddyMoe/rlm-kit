@@ -3,18 +3,15 @@ name: Extension CI
 on:
   push:
     branches: [main]
-    paths:
-      - "vscode-extension/**"
   pull_request:
-    paths:
-      - "vscode-extension/**"
+    branches: [main]
 
 defaults:
   run:
     working-directory: vscode-extension
 
 jobs:
-  typecheck-lint-test:
+  quality-gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,5 +32,14 @@ jobs:
       - name: ESLint (strict, zero tolerance)
         run: npx eslint src/ --max-warnings 0
 
+      - name: Build
+        run: npx tsc -p ./
+
       - name: Unit tests
-        run: npx tsc -p ./ && node out/logger.test.js
+        run: node out/logger.test.js
+
+      - name: Unit tests (second run — flakiness check)
+        run: node out/logger.test.js
+
+      - name: Audit dependencies
+        run: npm audit --omit=dev || true
