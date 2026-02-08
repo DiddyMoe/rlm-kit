@@ -1,71 +1,89 @@
 # ADR-001: Extension Architecture — RLM Orchestrator Integration
 
 ## Status
-Accepted
+
+Accepted (updated 2026-02-07)
 
 ## Context
-The rlm-kit repository contains:
-1. A Python library (`rlm/`) implementing Recursive Language Model inference
-2. A VS Code extension (`vscode-extension/`) that bridges the Chat API to the Python backend
-3. An MCP gateway (`rlm/mcp_gateway/`) for Cursor IDE integration
-4. Multiple cloud sandbox environments (Modal, Prime, Daytona, Docker)
 
-The goal is a production-grade VS Code/Cursor extension with:
-- RLM orchestration wired into the chat agent workflow
-- Centralized settings, deep tracing, security hardening
-- Strict typing, minimal complexity, CI-ready quality gates
+The repository delivers a VS Code / Cursor extension that integrates
+Recursive Language Model (RLM) inference into the editor's built-in chat
+agent workflow.
+
+Key components:
+
+| Layer | Language | Purpose |
+|-------|----------|---------|
+| `vscode-extension/src/` | TypeScript | Extension host: chat participant, orchestrator, bridge, config, logger |
+| `vscode-extension/python/rlm_backend.py` | Python | Glue process spawned by the extension; creates `RLM` instances |
+| `rlm/` | Python | Core RLM engine, LM clients, local REPL, parsing, prompts |
 
 ## Decision
 
-### What stays
-- **Python library (`rlm/`)**: The RLM engine stays as the computation backend. The extension spawns it as a child process via `rlm_backend.py`.
-- **VS Code extension (`vscode-extension/`)**: The primary deliverable. Gets a new TypeScript orchestrator layer, improved logging, settings service, and security hardening.
-- **MCP gateway**: Stays for Cursor integration path.
-- **Tests**: Kept and extended.
+### Architecture
 
-### What gets added (TypeScript, in the extension)
-1. **`src/orchestrator.ts`** — RLM Orchestrator: thin TypeScript layer that sits between the chat participant and BackendBridge. Responsibilities:
-   - Bounded recursion depth enforcement (configurable)
-   - Work budget tracking (time/steps)
-   - Deterministic termination conditions
-   - Trace span emission for every orchestration step
-   - Context management (externalized, not stuffed into prompts)
-
-2. **`src/configService.ts`** — Centralized settings reader:
-   - Single source of truth for all `rlm.*` settings
-   - Runtime toggle for tracing
-   - Emits change events
-
-3. **Enhanced `src/logger.ts`** — Improved tracing:
-   - Rolling JSONL at `logs/trace.jsonl` (extension storage)
-   - 10MB rotation with newest-entries-preserved truncation
-   - Expanded redaction patterns (Gemini keys, Azure keys, generic tokens, arrays)
-   - Crash-safe flush (sync on fatal, `process.on('uncaughtException')`)
-   - Toggle via settings
-
-### What gets pruned
-- Empty log files in `logs/`
-- Dead CI workflow (`docs.yml`)
-- `ollama.py` client (unregistered)
-- `MANIFEST.IN` (redundant with pyproject.toml)
-- `__pycache__` directories from version control
-
-### Architecture flow
 ```
-User → @rlm Chat → RLMChatParticipant → Orchestrator → BackendBridge → Python
-                                            ↓
-                                     ConfigService (settings)
-                                     Logger (trace spans)
+User → @rlm Chat → RLMChatParticipant → Orchestrator → BackendBridge → rlm_backend.py
+                                            ↕                               ↕
+                                     ConfigService                    RLM.completion()
+                                     Logger (JSONL)                   + LocalREPL
 ```
 
-The orchestrator does NOT duplicate the Python RLM loop. It wraps the bridge call with:
-- Pre-flight validation (budget, depth)
-- Trace span start/end
+**Orchestrator** (`src/orchestrator.ts`) — the boundary between the chat
+participant and the Python backend.  It does NOT duplicate the Python RLM
+iteration loop.  It enforces:
+
+- Bounded recursion depth (configurable, hard cap 50)
+- Wall-clock timeout (10 min default)
+- Trace span emission for every orchestration call
 - Error boundary with structured logging
-- Timeout enforcement
+
+**BackendBridge** (`src/backendBridge.ts`) — spawns the Python process
+with a filtered environment (secrets, cloud vars, Electron vars blocked).
+JSON-over-newline protocol on stdin/stdout.  Generation counter prevents
+stale exit/error events from affecting new sessions.
+
+**ConfigService** (`src/configService.ts`) — singleton reading all
+`rlm.*` settings.  Emits typed change events.  Controls tracing toggle,
+log level, recursion limits, and safety budgets.
+
+**Logger** (`src/logger.ts`) — structured JSONL logger:
+
+- Output: `logs/trace.jsonl` (workspace-local) or global storage
+- Rolling at configurable threshold (default 10 MB, keeps newest 50%)
+- 10 redaction patterns covering API keys, tokens, secrets
+- Crash-safe: sync flush on WARN+, `process.on('uncaughtException')`
+- Toggleable via `rlm.tracingEnabled`
+
+**Platform detection** (`src/platform.ts`) — detects VS Code vs Cursor.
+VS Code → chat participant registered.  Cursor → api_key mode.
+
+### Typing strategy
+
+- `exactOptionalPropertyTypes: true` in tsconfig
+- All `strict` flags enabled
+- ESLint `strictTypeChecked` ruleset
+- `no-explicit-any: "error"`, `no-floating-promises: "error"`
+- Complexity cap at 15
+
+### Python sidecar
+
+The `rlm/` package is an isolated Python library.  The only bridge is
+`rlm_backend.py` which speaks the JSON protocol defined in `types.ts`.
+The extension sets `PYTHONPATH` so `import rlm` resolves without
+installation.  Only the `local` REPL environment is supported.
+
+### Security model
+
+- API keys stored via `vscode.SecretStorage` (OS keychain) — never on disk
+- Environment variables filtered: cloud provider vars, tokens, secrets blocked
+- Log redaction: 10 regex patterns, applied recursively to nested objects/arrays
+- Orphan protection: Python process monitors parent PID
+- Timeout enforcement at multiple layers
 
 ## Consequences
-- Extension bundle stays lightweight (zero runtime npm deps)
-- Python backend continues to own the full RLM iteration loop
-- TypeScript orchestrator provides observability, safety bounds, and configuration
-- Both VS Code and Cursor paths are preserved
+
+- Extension bundle has zero runtime npm dependencies
+- Python backend owns the full RLM iteration loop
+- TypeScript orchestrator provides observability, safety bounds, configuration
+- Both VS Code (chat participant) and Cursor (api_key mode) are supported
