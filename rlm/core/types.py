@@ -14,7 +14,7 @@ ClientBackend = Literal[
     "gemini",
     "vscode_lm",
 ]
-EnvironmentType = Literal["local"]
+EnvironmentType = Literal["local", "docker", "modal", "prime", "daytona"]
 
 
 def _serialize_value(value: Any) -> Any:

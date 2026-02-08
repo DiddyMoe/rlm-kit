@@ -7,34 +7,69 @@
             "command": "make",
             "args": ["install"],
             "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
             "problemMatcher": []
         },
         {
-            "label": "Build",
+            "label": "Install Dev Dependencies",
             "type": "shell",
             "command": "make",
-            "args": ["build"],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": ["$tsc"]
-        },
-        {
-            "label": "Typecheck",
-            "type": "shell",
-            "command": "make",
-            "args": ["typecheck"],
+            "args": ["install-dev"],
             "group": "build",
-            "problemMatcher": ["$tsc"]
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
         },
         {
-            "label": "Lint",
+            "label": "Install Modal Dependencies",
+            "type": "shell",
+            "command": "make",
+            "args": ["install-modal"],
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Run Linter",
             "type": "shell",
             "command": "make",
             "args": ["lint"],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$python"]
+        },
+        {
+            "label": "Format Code",
+            "type": "shell",
+            "command": "make",
+            "args": ["format"],
             "group": "build",
-            "problemMatcher": ["$eslint-stylish"]
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
         },
         {
             "label": "Run Tests",
@@ -45,7 +80,13 @@
                 "kind": "test",
                 "isDefault": true
             },
-            "problemMatcher": []
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": ["$python"]
         },
         {
             "label": "Run All Checks",
@@ -53,16 +94,95 @@
             "command": "make",
             "args": ["check"],
             "group": "test",
-            "problemMatcher": ["$tsc", "$eslint-stylish"]
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Run Quickstart Example",
+            "type": "shell",
+            "command": "make",
+            "args": ["quickstart"],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Run Docker REPL Example",
+            "type": "shell",
+            "command": "make",
+            "args": ["docker-repl"],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Run Modal REPL Example",
+            "type": "shell",
+            "command": "make",
+            "args": ["modal-repl"],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
         },
         {
             "label": "npm: watch - vscode-extension",
             "type": "npm",
             "script": "watch",
             "path": "vscode-extension",
+            "problemMatcher": "$tsc-watch",
             "isBackground": true,
+            "presentation": {
+                "reveal": "never"
+            },
+            "group": "build"
+        },
+        {
+            "label": "Extension: Typecheck",
+            "type": "shell",
+            "command": "make",
+            "args": ["ext-typecheck"],
             "group": "build",
-            "problemMatcher": ["$tsc-watch"]
+            "problemMatcher": []
+        },
+        {
+            "label": "Extension: Lint",
+            "type": "shell",
+            "command": "make",
+            "args": ["ext-lint"],
+            "group": "build",
+            "problemMatcher": ["$eslint-stylish"]
+        },
+        {
+            "label": "Extension: Test",
+            "type": "shell",
+            "command": "make",
+            "args": ["ext-test"],
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "Extension: All Checks",
+            "type": "shell",
+            "command": "make",
+            "args": ["ext-check"],
+            "group": "test",
+            "problemMatcher": []
         }
     ]
 }

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "rlm-gateway": {
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "scripts/rlm_mcp_gateway.py"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    }
+  }
+}

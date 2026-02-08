@@ -98,7 +98,9 @@ def format_iteration(
     return messages
 
 
-# ── Formatting helpers ───────────────────────────────────────────────
+################
+# TODO: Remove and refactor these soon
+################
 
 
 def format_execution_result(result: REPLResult) -> str:
