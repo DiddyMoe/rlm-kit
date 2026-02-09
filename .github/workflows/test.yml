@@ -28,6 +28,11 @@ jobs:
           uv pip install --system -e .
           uv pip install --system pytest pytest-asyncio pytest-cov
 
+      - name: MCP gateway smoke (starts)
+        run: |
+          uv pip install --system mcp
+          python scripts/rlm_mcp_gateway.py --help
+
       - name: Run tests
         run: |
           python -m pytest tests/ -v \

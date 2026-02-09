@@ -1,6 +1,6 @@
 .PHONY: help install install-dev install-modal run-all \
         quickstart docker-repl lm-repl modal-repl \
-        lint format test check \
+        lint format test typecheck check \
         ext-install ext-build ext-typecheck ext-lint ext-test ext-check ext-clean
 
 help:
@@ -22,6 +22,7 @@ help:
 	@echo "  make lint           - Run ruff linter"
 	@echo "  make format         - Run ruff formatter"
 	@echo "  make test           - Run tests"
+	@echo "  make typecheck      - Run ty type checker"
 	@echo "  make check          - Run lint + format + tests"
 	@echo ""
 	@echo "Extension:"
@@ -64,6 +65,9 @@ format: install-dev
 
 test: install-dev
 	uv run pytest
+
+typecheck: install-dev
+	uv run ty check --exit-zero --output-format=concise
 
 check: lint format test
 
