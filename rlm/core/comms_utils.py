@@ -3,6 +3,7 @@ Communication utilities for RLM socket protocol.
 
 Protocol: 4-byte big-endian length prefix + JSON payload.
 Used for communication between LMHandler and environment subprocesses.
+Socket requests are retried on transient failures (see failure_modes.md).
 """
 
 import json
@@ -11,6 +12,7 @@ import struct
 from dataclasses import dataclass
 from typing import Any
 
+from rlm.core.retry import retry_with_backoff
 from rlm.core.types import RLMChatCompletion
 
 # =============================================================================
@@ -206,19 +208,22 @@ def send_lm_request(
 ) -> LMResponse:
     """Send an LM request and return typed response.
 
-    Args:
-        address: (host, port) tuple of LM Handler server.
-        request: LMRequest to send.
-        timeout: Socket timeout in seconds.
-        depth: Optional depth to override request depth.
-
-    Returns:
-        LMResponse with content or error.
+    Socket I/O is retried on ConnectionError, TimeoutError, OSError (see retry_with_backoff).
     """
     try:
         if depth is not None:
             request.depth = depth
-        response_data = socket_request(address, request.to_dict(), timeout)
+
+        def _do_request() -> dict:
+            return socket_request(address, request.to_dict(), timeout)
+
+        response_data = retry_with_backoff(
+            _do_request,
+            max_attempts=3,
+            initial_delay=0.5,
+            max_delay=10.0,
+            backoff_factor=2.0,
+        )
         return LMResponse.from_dict(response_data)
     except Exception as e:
         return LMResponse.error_response(f"Request failed: {e}")
@@ -245,7 +250,17 @@ def send_lm_request_batched(
     """
     try:
         request = LMRequest(prompts=prompts, model=model, depth=depth)
-        response_data = socket_request(address, request.to_dict(), timeout)
+
+        def _do_request() -> dict:
+            return socket_request(address, request.to_dict(), timeout)
+
+        response_data = retry_with_backoff(
+            _do_request,
+            max_attempts=3,
+            initial_delay=0.5,
+            max_delay=10.0,
+            backoff_factor=2.0,
+        )
         response = LMResponse.from_dict(response_data)
 
         if not response.success:
