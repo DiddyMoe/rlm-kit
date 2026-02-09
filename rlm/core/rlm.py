@@ -117,6 +117,7 @@ class RLM:
                 if environment_kwargs
                 else {},
                 other_backends=other_backends,
+                run_id=getattr(self.logger, "run_id", None) if self.logger else None,
             )
             if self.logger:
                 self.logger.log_metadata(metadata)

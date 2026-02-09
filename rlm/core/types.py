@@ -224,6 +224,7 @@ class RLMMetadata:
     environment_type: str
     environment_kwargs: dict[str, Any]
     other_backends: list[str] | None = None
+    run_id: str | None = None  # Optional; set by RLMLogger when logging for trajectory correlation
 
     def to_dict(self):
         return {
@@ -237,6 +238,7 @@ class RLMMetadata:
                 k: _serialize_value(v) for k, v in self.environment_kwargs.items()
             },
             "other_backends": self.other_backends,
+            "run_id": self.run_id,
         }
 
 
