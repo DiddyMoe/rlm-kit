@@ -20,15 +20,14 @@ Baseline environment and packaging for the RLM fork.
 | `modal`  | Modal sandbox        | modal>=0.73.0, dill>=0.3.7 |
 | `daytona`| Daytona sandbox      | daytona>=0.128.1, dill>=0.3.7 |
 | `prime`  | Prime sandboxes      | prime-sandboxes>=0.2.0, dill>=0.3.7 |
+| `mcp`    | MCP gateway (stdio)  | mcp>=1.0.0                 |
 
 ## MCP gateway dependencies
 
 The MCP gateway (`rlm/mcp_gateway/server.py`, entry `scripts/rlm_mcp_gateway.py`) requires:
 
-- **`mcp`** — MCP SDK (Server, stdio_server, Tool, TextContent). Not listed in `pyproject.toml`. If missing, the gateway prints "MCP SDK not installed. Install with: pip install mcp" and exits.
-- **HTTP mode only**: `fastapi`, `uvicorn` — for `--mode http`. Not in pyproject; gateway imports optionally and exits with install instructions if missing.
-
-**Recommendation**: Add an optional extra (e.g. `[mcp]`) in `pyproject.toml` listing `mcp`, and for HTTP mode `fastapi` and `uvicorn`, so gateway deps are explicit. Phase 3 may implement this only if approved (dependency change = approval required).
+- **Stdio mode**: Install with `uv pip install -e ".[mcp]"` (or `uv sync --extra mcp`). The `[mcp]` extra provides the `mcp` package.
+- **HTTP mode** (`--mode http`): Additionally requires `fastapi` and `uvicorn`. Install with `uv pip install fastapi uvicorn` (or add to your environment). Not included in the `[mcp]` extra to keep the default install minimal.
 
 ## Setup variants
 
