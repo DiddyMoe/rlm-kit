@@ -109,6 +109,31 @@ def resolve_llm_response(nonce: str, payload: dict[str, Any]) -> None:
     event.set()
 
 
+# ── Progress logger (emits progress messages during completion loop) ──
+
+
+class ProgressLogger:
+    """Logger that emits progress messages to the extension (no file output)."""
+
+    def __init__(self) -> None:
+        self._iteration_count = 0
+
+    def reset(self) -> None:
+        self._iteration_count = 0
+
+    def log_metadata(self, metadata: Any) -> None:
+        """No-op for metadata (we only care about iterations for progress)."""
+        pass
+
+    def log(self, iteration: Any) -> None:
+        """On each iteration, send a progress message to the extension."""
+        self._iteration_count += 1
+        nonce = getattr(STATE, "current_progress_nonce", "") or ""
+        max_iter = getattr(STATE, "current_progress_max_iterations", 30) or 30
+        text = (getattr(iteration, "response", None) or "")[:500]
+        send_progress(nonce, self._iteration_count, max_iter, text)
+
+
 # ── Backend state ────────────────────────────────────────────────────
 
 
@@ -125,6 +150,9 @@ class BackendState:
         self.max_iterations: int = 30
         self.max_output_chars: int = 20000
         self.rlm_instance: Any = None  # RLM or None
+        self.progress_logger = ProgressLogger()
+        self.current_progress_nonce: str = ""
+        self.current_progress_max_iterations: int = 30
 
     def configure(self, msg: dict[str, Any]) -> None:
         """Process a 'configure' message from the extension."""
@@ -164,6 +192,7 @@ class BackendState:
             "environment_kwargs": {},
             "max_iterations": self.max_iterations,
             "persistent": persistent,
+            "logger": self.progress_logger,
         }
 
         # Wire up sub-LM if configured
@@ -196,6 +225,10 @@ def handle_completion(msg: dict[str, Any]) -> None:
         send_error(nonce, "Backend not configured. Send a 'configure' message first.")
         return
 
+    STATE.current_progress_nonce = nonce
+    STATE.current_progress_max_iterations = STATE.max_iterations
+    STATE.progress_logger.reset()
+
     try:
         rlm = STATE.get_or_create_rlm(persistent=persistent)
 
@@ -209,6 +242,8 @@ def handle_completion(msg: dict[str, Any]) -> None:
 
     except Exception as e:
         send_error(nonce, f"{type(e).__name__}: {e}")
+    finally:
+        STATE.current_progress_nonce = ""
 
 
 def handle_execute(msg: dict[str, Any]) -> None:
