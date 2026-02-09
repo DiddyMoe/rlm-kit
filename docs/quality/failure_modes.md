@@ -8,6 +8,11 @@ Cause, detection, mitigation. File pointers for implementation.
 - **Detection**: Exception from LM client; `LMResponse.error` in rlm/core/comms_utils.py; extension shows error in Chat.
 - **Mitigation**: rlm/core/retry.py (`retry_with_backoff`); fail fast on missing key; playbooks in docs/integration/playbooks.md.
 
+## Socket LM requests (env → LMHandler)
+
+- **Cause**: Transient connection/timeout errors when environments call `send_lm_request` / `send_lm_request_batched` (rlm/core/comms_utils.py).
+- **Mitigation**: Both helpers wrap `socket_request` in `retry_with_backoff` (max_attempts=3, ConnectionError/TimeoutError/OSError). No public API change.
+
 ## Recursion runaway
 
 - **Cause**: max_iterations/max_depth too high; model never emits FINAL.
