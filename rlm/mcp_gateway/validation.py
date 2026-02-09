@@ -5,7 +5,11 @@ from pathlib import Path
 
 
 class PathValidator:
-    """Validates and normalizes paths with root boundary enforcement."""
+    """Validates and normalizes paths with root boundary enforcement.
+
+    When multiple allowed_roots are configured, a path is valid if it falls
+    under any one of them (after normalization and symlink resolution).
+    """
 
     _RESTRICTED_PATTERNS = [
         ".git",

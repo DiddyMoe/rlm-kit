@@ -54,14 +54,12 @@ class CompleteTools:
                     "error": f"Max span size too large: {max_span_size} > {MAX_SPAN_LINES}",
                 }
 
-        # Extract budget limits
+        # Extract budget limits (RLM does not support max_tokens/max_cost yet; use only max_iterations)
         max_iterations = (
             budgets.get("max_iterations", session.config.max_iterations)
             if budgets
             else session.config.max_iterations
         )
-        max_tokens = budgets.get("max_tokens") if budgets else None
-        max_cost = budgets.get("max_cost") if budgets else None
 
         # Execute RLM reasoning with local environment (optimized for IDE integration)
         try:
@@ -92,13 +90,12 @@ class CompleteTools:
                 backend_kwargs["model_name"] = model_name
 
             # Create RLM instance with local environment (fast, no Docker/HTTP overhead)
+            # RLM does not support max_tokens or max_cost; only max_iterations is passed.
             rlm = RLM(
                 backend=backend,
                 backend_kwargs=backend_kwargs,
                 environment="local",  # Use local environment for seamless IDE integration
                 max_iterations=min(max_iterations, 10),  # Limit iterations for bounded execution
-                max_tokens=max_tokens,
-                max_cost=max_cost,
                 verbose=False,  # Disable verbose output for cleaner IDE integration
             )
 

@@ -86,6 +86,31 @@ class UsageSummary:
 
 
 ########################################################
+########   Provenance (MCP gateway)              #########
+########################################################
+
+
+@dataclass
+class SnippetProvenance:
+    """Provenance for a code snippet or file span (MCP gateway)."""
+
+    file_path: str | None
+    start_line: int | None
+    end_line: int | None
+    content_hash: str | None
+    source_type: str  # e.g. "file", "chunk", "execution"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file_path": self.file_path,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "content_hash": self.content_hash,
+            "source_type": self.source_type,
+        }
+
+
+########################################################
 ########   Types for REPL and RLM Iterations   #########
 ########################################################
 @dataclass
@@ -120,11 +145,13 @@ class RLMChatCompletion:
 
 @dataclass
 class REPLResult:
+    """Result of a REPL code execution. Attribute is rlm_calls (sub-call completions)."""
+
     stdout: str
     stderr: str
     locals: dict
     execution_time: float
-    llm_calls: list["RLMChatCompletion"]
+    rlm_calls: list["RLMChatCompletion"]
 
     def __init__(
         self,

@@ -49,12 +49,12 @@ class LMRequest:
 
     @classmethod
     def from_dict(cls, data: dict) -> "LMRequest":
-        """Create from dict."""
+        """Create from dict. depth defaults to 0 if omitted."""
         return cls(
             prompt=data.get("prompt"),
             prompts=data.get("prompts"),
             model=data.get("model"),
-            depth=data.get("depth", -1),  # TODO: Default should throw an error
+            depth=data.get("depth", 0),
         )
 
 
