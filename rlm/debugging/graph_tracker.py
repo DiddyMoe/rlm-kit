@@ -1,16 +1,19 @@
 """Graph tracking for recursive LLM call visualization."""
 
+import importlib
 import json
 import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
+_networkx_module: Any | None
 try:
-    import networkx as nx
-
-    NETWORKX_AVAILABLE = True
+    _networkx_module = importlib.import_module("networkx")
 except ImportError:
-    NETWORKX_AVAILABLE = False
+    _networkx_module = None
+
+nx: Any = _networkx_module
+NETWORKX_AVAILABLE: bool = _networkx_module is not None
 
 
 @dataclass
@@ -47,6 +50,7 @@ class GraphTracker:
         """Initialize empty graph tracker."""
         self.nodes: dict[str, GraphNode] = {}
         self.root_node_id: str | None = None
+        self.graph: Any | None
         if NETWORKX_AVAILABLE:
             self.graph = nx.DiGraph()
         else:
@@ -109,7 +113,8 @@ class GraphTracker:
 
     def get_node(self, node_id: str) -> GraphNode | None:
         """Get a node by ID."""
-        return self.nodes.get(node_id)
+        node = self.nodes.get(node_id)
+        return node
 
     def get_children(self, node_id: str) -> list[GraphNode]:
         """Get all children of a node."""

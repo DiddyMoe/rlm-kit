@@ -71,7 +71,7 @@ class VerbosePrinter:
             enabled: Whether verbose printing is enabled. If False, all methods are no-ops.
         """
         self.enabled = enabled
-        self.console = Console() if enabled else None
+        self.console = Console()
         self._iteration_count = 0
 
     def print_header(
@@ -223,7 +223,7 @@ class VerbosePrinter:
             header.append(f"  ({result.execution_time:.3f}s)", style=STYLE_MUTED)
 
         # Build content
-        content_parts = []
+        content_parts: list[Any] = []
 
         # Code snippet
         code_text = Text()
@@ -323,6 +323,38 @@ class VerbosePrinter:
                     response_preview=_to_str(call.response) if call.response else "",
                     execution_time=call.execution_time,
                 )
+
+    def print_compaction_status(
+        self,
+        current_tokens: int,
+        threshold_tokens: int,
+        max_tokens: int,
+    ) -> None:
+        """Print current token usage vs compaction threshold."""
+        if not self.enabled:
+            return
+
+        pct = (current_tokens / max_tokens * 100) if max_tokens else 0.0
+        status = Text()
+        status.append("⟳ ", style=STYLE_ACCENT)
+        status.append("Compaction ", style=STYLE_ACCENT)
+        status.append(f"{current_tokens:,}", style=STYLE_WARNING)
+        status.append(f" / {threshold_tokens:,} threshold", style=STYLE_MUTED)
+        status.append(f" ({pct:.0f}% of {max_tokens:,} max)", style=STYLE_MUTED)
+        self.console.print(status)
+
+    def print_compaction(self) -> None:
+        """Print a notice that compaction is happening."""
+        if not self.enabled:
+            return
+
+        notice = Text()
+        notice.append("⟳ ", style=STYLE_WARNING)
+        notice.append(
+            "Compacting history — summarizing trajectory and continuing...",
+            style=STYLE_WARNING,
+        )
+        self.console.print(notice)
 
     def print_final_answer(self, answer: Any) -> None:
         """Print the final answer."""

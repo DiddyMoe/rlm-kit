@@ -114,9 +114,9 @@ class CallHistory:
         total_tokens = None
 
         if model_usage:
-            input_tokens = model_usage.input_tokens
-            output_tokens = model_usage.output_tokens
-            total_tokens = model_usage.total_tokens
+            input_tokens = model_usage.total_input_tokens
+            output_tokens = model_usage.total_output_tokens
+            total_tokens = model_usage.total_input_tokens + model_usage.total_output_tokens
 
         return self.add_call(
             model=completion.root_model,
@@ -147,21 +147,70 @@ class CallHistory:
         Returns:
             List of matching CallHistoryEntry objects
         """
-        filtered = self.entries
+        return self._apply_filters(
+            model=model,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit,
+        )
 
-        if model:
-            filtered = [e for e in filtered if e.model == model]
+    def _apply_filters(
+        self,
+        model: str | None,
+        start_time: float | None,
+        end_time: float | None,
+        limit: int | None,
+    ) -> list[CallHistoryEntry]:
+        filtered = self._filter_by_model(self.entries, model)
+        filtered = self._filter_by_start_time(filtered, start_time)
+        filtered = self._filter_by_end_time(filtered, end_time)
+        return self._apply_limit(filtered, limit)
 
-        if start_time is not None:
-            filtered = [e for e in filtered if e.timestamp >= start_time]
+    def _filter_by_model(
+        self, entries: list[CallHistoryEntry], model: str | None
+    ) -> list[CallHistoryEntry]:
+        if model is None:
+            return entries
+        return [entry for entry in entries if entry.model == model]
 
-        if end_time is not None:
-            filtered = [e for e in filtered if e.timestamp <= end_time]
+    def _filter_by_start_time(
+        self, entries: list[CallHistoryEntry], start_time: float | None
+    ) -> list[CallHistoryEntry]:
+        if start_time is None:
+            return entries
+        return [entry for entry in entries if entry.timestamp >= start_time]
 
-        if limit is not None:
-            filtered = filtered[-limit:]
+    def _filter_by_end_time(
+        self, entries: list[CallHistoryEntry], end_time: float | None
+    ) -> list[CallHistoryEntry]:
+        if end_time is None:
+            return entries
+        return [entry for entry in entries if entry.timestamp <= end_time]
 
-        return filtered
+    def _apply_limit(
+        self, entries: list[CallHistoryEntry], limit: int | None
+    ) -> list[CallHistoryEntry]:
+        if limit is None:
+            return entries
+        return entries[-limit:]
+
+    def _model_statistics(self) -> dict[str, dict[str, Any]]:
+        model_stats: dict[str, dict[str, Any]] = {}
+        for entry in self.entries:
+            if entry.model not in model_stats:
+                model_stats[entry.model] = {
+                    "call_count": 0,
+                    "total_tokens": 0,
+                    "total_execution_time": 0.0,
+                }
+
+            model_stats[entry.model]["call_count"] += 1
+            if entry.total_tokens is not None:
+                model_stats[entry.model]["total_tokens"] += entry.total_tokens
+            if entry.execution_time is not None:
+                model_stats[entry.model]["total_execution_time"] += entry.execution_time
+
+        return model_stats
 
     def get_statistics(self) -> dict[str, Any]:
         """Get statistics about the call history.
@@ -182,19 +231,7 @@ class CallHistory:
             e.execution_time or 0.0 for e in self.entries if e.execution_time is not None
         )
 
-        models: dict[str, dict[str, Any]] = {}
-        for entry in self.entries:
-            if entry.model not in models:
-                models[entry.model] = {
-                    "call_count": 0,
-                    "total_tokens": 0,
-                    "total_execution_time": 0.0,
-                }
-            models[entry.model]["call_count"] += 1
-            if entry.total_tokens is not None:
-                models[entry.model]["total_tokens"] += entry.total_tokens
-            if entry.execution_time is not None:
-                models[entry.model]["total_execution_time"] += entry.execution_time
+        models = self._model_statistics()
 
         return {
             "total_calls": len(self.entries),
@@ -210,7 +247,7 @@ class CallHistory:
             filepath: Path to output JSON file
             indent: JSON indentation level
         """
-        data = {
+        data: dict[str, Any] = {
             "metadata": {
                 "export_timestamp": time.time(),
                 "total_calls": len(self.entries),
