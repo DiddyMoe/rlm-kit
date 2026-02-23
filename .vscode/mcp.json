@@ -1,0 +1,26 @@
+{
+  "servers": {
+    "rlmGateway": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--extra",
+        "mcp",
+        "python",
+        "scripts/rlm_mcp_gateway.py"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      },
+      "dev": {
+        "watch": "rlm/mcp_gateway/**/*.py",
+        "debug": {
+          "type": "python",
+          "request": "launch"
+        }
+      }
+    }
+  }
+}

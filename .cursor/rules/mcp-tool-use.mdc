@@ -1,0 +1,33 @@
+---
+description: Prefer MCP-first retrieval and constrained tool usage for Cursor agent flows
+alwaysApply: true
+---
+
+# MCP Tool-Use Guidance
+
+Use the RLM MCP gateway configured in `.cursor/mcp.json`.
+
+## Preferred Sequence
+
+1. Create session: `rlm_session_create`
+2. Scope roots: `rlm_roots_set`
+3. Retrieve context with search:
+   - `rlm_search_query` for semantic search
+   - `rlm_search_regex` for exact/regex matching
+4. Read only needed ranges:
+   - `rlm_span_read` or `rlm_chunk_get` for targeted spans
+5. Use full recursive reasoning only when needed:
+   - `rlm_complete`
+
+## Efficiency Rules
+
+- Prefer search-first over whole-file reads
+- Use narrow spans instead of broad reads
+- For mixed-language repos, pass `include_patterns` (for example `['*.py', '*.ts', '*.md']`)
+- Avoid expensive completion runs until context is narrowed
+
+## Tool Safety
+
+- Confirm intent before destructive operations
+- Keep operations within configured roots
+- Surface errors clearly and fail fast

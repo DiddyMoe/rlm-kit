@@ -1,0 +1,12 @@
+{
+  "name": "rlm-mcp-workflow",
+  "description": "RLM MCP-first workflow for bounded retrieval and recursive analysis in Cursor Agent mode",
+  "version": "1.0.0",
+  "entry": "SKILL.md",
+  "tags": [
+    "mcp",
+    "rlm",
+    "cursor",
+    "analysis"
+  ]
+}

@@ -1,0 +1,38 @@
+---
+description: RLM architecture, conventions, and workflow guidance for this repository
+alwaysApply: true
+---
+
+# RLM Architecture and Conventions
+
+This repository contains the RLM inference engine and VS Code/Cursor integration surfaces.
+
+## Architecture
+
+- Core: `rlm/core/` (RLM loop, LM handler, types, comms)
+- Clients: `rlm/clients/` (OpenAI, Anthropic, Gemini, Azure, Ollama, etc.)
+- Environments: `rlm/environments/` (local, docker, modal, prime, daytona, e2b)
+- MCP Gateway: `rlm/mcp_gateway/` (tools/resources/prompts for IDE integration)
+- Extension: `vscode-extension/` (chat participant and Python backend bridge)
+
+## Coding Rules
+
+- Python: explicit typing, snake_case methods, PascalCase classes, fail fast
+- TypeScript: strict typing, avoid `any`
+- Keep diffs surgical and minimal
+- Avoid unrelated changes
+- Prefer lazy imports in client/environment factories
+
+## Validation Commands
+
+- Python checks: `make check`
+- Extension checks: `make ext-check`
+
+## Orchestrator Workflow
+
+- Use plan prompts first (`research-plan`, `debug-plan`)
+- Use matching agent prompts to write artifacts and implement
+- Debug plan uses tool-assisted orthogonal passes (ruff, ty, tsc, eslint, pytest first; model analysis supplements)
+- Agent prompts enforce evidence gates: tool verification, test requirements, regression checks
+- Keep research and debug backlogs separate
+- Do not modify `docs/orchestrator/plan.md` directly during implementation
