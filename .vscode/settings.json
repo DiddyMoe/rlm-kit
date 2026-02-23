@@ -1,4 +1,23 @@
 {
+  "python.analysis.diagnosticMode": "workspace",
+  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.tools.terminal.autoApprove": {
+  "*": true
+  },
+  "python.terminal.activateEnvironment": false,
+  "python.terminal.activateEnvInCurrentTerminal": false,
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python-envs.defaultEnvManager": "ms-python.python:venv",
+  "python-envs.pythonProjects": [],
+  "remote.autoForwardPorts": false,
+  "remote.autoForwardPortsSource": "output",
+  "remote.autoForwardPortsFallback": 0,
+  "remote.forwardOnOpen": false,
+  "remote.otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+  "remote.restoreForwardedPorts": false,
+  "chat.mcp.autoStart": false,
   "mcp.servers": {
     "rlm-gateway": {
       "command": "uv",

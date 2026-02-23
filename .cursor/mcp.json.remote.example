@@ -18,7 +18,7 @@
   },
   "_instructions": {
     "remote_isolation": "This workspace uses remote isolation. The repository is NOT in this workspace. All access must go through MCP tools.",
-    "mcp_tools": "All repository access MUST go through MCP tools: rlm.session.create, rlm.fs.list, rlm.span.read, rlm.search.query, etc. NEVER read files directly.",
+    "mcp_tools": "All repository access MUST go through MCP tools: rlm_session_create, rlm_fs_list, rlm_span_read, rlm_search_query, etc. NEVER read files directly.",
     "setup": "1. Set RLM_GATEWAY_API_KEY environment variable\n2. Update gateway URL above if different\n3. Open this workspace in Cursor\n4. Verify MCP connection in Agent Chat"
   }
 }

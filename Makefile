@@ -30,7 +30,7 @@ help:
 	@echo "  make ext-build      - Compile TypeScript"
 	@echo "  make ext-typecheck  - Type-check with tsc --noEmit"
 	@echo "  make ext-lint       - Run ESLint"
-	@echo "  make ext-test       - Build + run logger tests"
+	@echo "  make ext-test       - Build + run extension unit tests"
 	@echo "  make ext-check      - All extension gates"
 	@echo "  make ext-clean      - Remove out/ directory"
 
@@ -38,7 +38,7 @@ install:
 	uv sync
 
 install-dev:
-	uv sync --group dev --group test
+	uv sync --group dev --group test --extra mcp
 
 install-modal:
 	uv pip install -e ".[modal]"
@@ -89,6 +89,10 @@ ext-lint: ext-install
 
 ext-test: ext-build
 	node $(EXT_DIR)/out/logger.test.js
+	node $(EXT_DIR)/out/backendBridge.protocol.test.js
+	node $(EXT_DIR)/out/platformLogic.test.js
+	node $(EXT_DIR)/out/configModel.test.js
+	node $(EXT_DIR)/out/toolsFormatting.test.js
 
 ext-check: ext-typecheck ext-lint ext-test
 
