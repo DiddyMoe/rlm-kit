@@ -78,6 +78,57 @@
         ]
       }
     ],
+    "languageModelTools": [
+      {
+        "name": "rlm_analyze",
+        "displayName": "RLM Analyze",
+        "modelDescription": "Run recursive analysis with RLM for long-context or complex reasoning tasks. Use when the prompt requires iterative decomposition, REPL-based computation, or deep context analysis. Returns the final RLM answer as text.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "rlm_analyze",
+        "userDescription": "Analyze a prompt with recursive RLM reasoning",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "The prompt to analyze with RLM recursive reasoning"
+            },
+            "context": {
+              "type": "string",
+              "description": "Optional additional context text for the analysis"
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "rlm_execute",
+        "displayName": "RLM Execute",
+        "modelDescription": "Execute Python code in the RLM local REPL environment and return stdout/stderr. Use for calculations or data processing when code execution is required.",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "rlm_execute",
+        "userDescription": "Execute Python code in the RLM REPL",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "description": "Python code to execute in the RLM REPL"
+            }
+          },
+          "required": [
+            "code"
+          ]
+        }
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "rlm-chat.rlmMcpServer"
+      }
+    ],
     "commands": [
       {
         "command": "rlm-chat.openChat",
@@ -145,7 +196,8 @@
             "portkey",
             "vercel",
             "vllm",
-            "litellm"
+            "litellm",
+            "ollama"
           ],
           "description": "LLM backend to use when llmProvider is 'api_key'. Ignored in builtin mode."
         },
@@ -172,7 +224,8 @@
             "portkey",
             "vercel",
             "vllm",
-            "litellm"
+            "litellm",
+            "ollama"
           ],
           "description": "Optional: separate backend for sub-LLM calls (recursive queries). Leave empty to use the same backend."
         },
@@ -202,6 +255,19 @@
           "type": "boolean",
           "default": true,
           "description": "Show detailed iteration progress (code blocks and outputs) in chat."
+        },
+        "rlm.environment": {
+          "type": "string",
+          "default": "local",
+          "enum": [
+            "local",
+            "docker",
+            "modal",
+            "daytona",
+            "prime",
+            "e2b"
+          ],
+          "description": "REPL execution environment for RLM code blocks."
         },
         "rlm.logLevel": {
           "type": "string",
@@ -244,11 +310,11 @@
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.99.0",
-    "eslint": "^9.0.0",
+    "eslint": "^10.0.1",
     "typescript": "^5.4.0",
-    "typescript-eslint": "^8.54.0"
+    "typescript-eslint": "8.56.1-alpha.3"
   }
 }

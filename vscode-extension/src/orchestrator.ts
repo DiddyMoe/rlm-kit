@@ -71,6 +71,7 @@ export class Orchestrator {
     request: OrchestrationRequest,
     config: RlmConfig,
     onProgress?: (iteration: number, maxIterations: number, text: string) => void,
+    onChunk?: (text: string) => void,
   ): Promise<OrchestrationResult> {
     const spanId = crypto.randomUUID();
     const startTime = Date.now();
@@ -90,37 +91,11 @@ export class Orchestrator {
       promptLength: request.prompt.length,
       hasContext: request.context !== undefined,
     });
-
-    // Wire progress tracking
-    if (onProgress) {
-      this.bridge.setProgressHandler((_nonce, iteration, maxIterations, text) => {
-        this.activeBudget = this.activeBudget
-          ? { ...this.activeBudget, stepsUsed: iteration }
-          : null;
-        onProgress(iteration, maxIterations, text);
-      });
-    }
+    this.wireProgressHandlers(onProgress, onChunk);
 
     try {
       const result = await this.executeWithBudget(request, spanId);
-      const durationMs = Date.now() - startTime;
-      const stepsUsed = this.activeBudget.stepsUsed;
-      const budgetExhausted = stepsUsed >= maxSteps || durationMs >= DEFAULT_WALL_CLOCK_MS;
-
-      logger.span("Orchestrator", "Completion finished", spanId, durationMs, {
-        stepsUsed,
-        maxSteps,
-        budgetExhausted,
-        resultLength: result.length,
-      });
-
-      return {
-        text: result,
-        spanId,
-        durationMs,
-        iterationsUsed: stepsUsed,
-        budgetExhausted,
-      };
+      return this.buildResult(result, spanId, startTime, maxSteps);
     } catch (err: unknown) {
       const durationMs = Date.now() - startTime;
       const message = err instanceof Error ? err.message : String(err);
@@ -137,6 +112,51 @@ export class Orchestrator {
   }
 
   // ── Private ─────────────────────────────────────────────────────
+
+  private wireProgressHandlers(
+    onProgress?: (iteration: number, maxIterations: number, text: string) => void,
+    onChunk?: (text: string) => void,
+  ): void {
+    if (onProgress) {
+      this.bridge.setProgressHandler((_nonce, iteration, maxIterations, text) => {
+        this.activeBudget = this.activeBudget
+          ? { ...this.activeBudget, stepsUsed: iteration }
+          : null;
+        onProgress(iteration, maxIterations, text);
+      });
+    }
+    if (onChunk) {
+      this.bridge.setChunkHandler((_nonce, text) => {
+        onChunk(text);
+      });
+    }
+  }
+
+  private buildResult(
+    text: string,
+    spanId: string,
+    startTime: number,
+    maxSteps: number,
+  ): OrchestrationResult {
+    const durationMs = Date.now() - startTime;
+    const stepsUsed = this.activeBudget?.stepsUsed ?? 0;
+    const budgetExhausted = stepsUsed >= maxSteps || durationMs >= DEFAULT_WALL_CLOCK_MS;
+
+    logger.span("Orchestrator", "Completion finished", spanId, durationMs, {
+      stepsUsed,
+      maxSteps,
+      budgetExhausted,
+      resultLength: text.length,
+    });
+
+    return {
+      text,
+      spanId,
+      durationMs,
+      iterationsUsed: stepsUsed,
+      budgetExhausted,
+    };
+  }
 
   private async executeWithBudget(
     request: OrchestrationRequest,

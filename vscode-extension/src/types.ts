@@ -30,7 +30,13 @@ export type ClientBackend =
   | "anthropic"
   | "azure_openai"
   | "gemini"
+  | "ollama"
   | "vscode_lm";
+
+/**
+ * REPL environment identifier matching Python's `get_environment()` literal.
+ */
+export type RlmEnvironment = "local" | "docker" | "modal" | "daytona" | "prime" | "e2b";
 
 /**
  * Full provider configuration sent to the Python backend on startup.
@@ -41,10 +47,10 @@ export interface ProviderConfig {
   readonly model: string;
   readonly backendKwargs: Record<string, unknown>;
   readonly subBackend?: ClientBackend | undefined;
-  readonly subModel?: string | undefined;
   readonly subBackendKwargs?: Record<string, unknown> | undefined;
   readonly maxIterations: number;
   readonly maxOutputChars: number;
+  readonly environment: RlmEnvironment;
 }
 
 // ── Bridge protocol messages (TS ↔ Python) ──────────────────────────
@@ -53,6 +59,7 @@ export interface ProviderConfig {
 export type OutboundMessage =
   | ConfigureMessage
   | CompletionMessage
+  | CancelMessage
   | ExecuteMessage
   | LlmResponseMessage
   | PingMessage
@@ -68,6 +75,7 @@ export interface ConfigureMessage {
   readonly subBackendKwargs?: Record<string, unknown> | undefined;
   readonly maxIterations: number;
   readonly maxOutputChars: number;
+  readonly environment: RlmEnvironment;
 }
 
 export interface CompletionMessage {
@@ -77,6 +85,10 @@ export interface CompletionMessage {
   readonly context?: string | undefined;
   readonly rootPrompt?: string | undefined;
   readonly persistent?: boolean | undefined;
+}
+
+export interface CancelMessage {
+  readonly type: "cancel";
 }
 
 export interface ExecuteMessage {
@@ -90,6 +102,8 @@ export interface LlmResponseMessage {
   readonly nonce: string;
   readonly text?: string | undefined;
   readonly error?: string | undefined;
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
 }
 
 export interface PingMessage {
@@ -105,6 +119,7 @@ export interface ShutdownMessage {
 export type InboundMessage =
   | ReadyMessage
   | ConfiguredMessage
+  | ChunkMessage
   | ResultMessage
   | ExecResultMessage
   | LlmRequestMessage
@@ -124,6 +139,12 @@ export interface ConfiguredMessage {
 
 export interface ResultMessage {
   readonly type: "result";
+  readonly nonce: string;
+  readonly text: string;
+}
+
+export interface ChunkMessage {
+  readonly type: "chunk";
   readonly nonce: string;
   readonly text: string;
 }
@@ -164,7 +185,7 @@ export interface PongMessage {
 
 // ── Domain types ────────────────────────────────────────────────────
 
-/** REPL execution result (matches Python's REPLResult). */
+/** REPL execution result from backend bridge exec_result message. stdout/stderr come from Python REPLResult; error is synthesized as bool(stderr). */
 export interface REPLResult {
   readonly stdout: string;
   readonly stderr: string;

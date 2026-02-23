@@ -10,8 +10,7 @@
  */
 
 import * as vscode from "vscode";
-
-export type EditorKind = "vscode" | "cursor" | "unknown";
+import { detectEditorKind, type EditorKind } from "./platformLogic";
 
 let _detected: EditorKind | undefined;
 
@@ -29,16 +28,7 @@ export function detectEditor(): EditorKind {
     return _detected;
   }
 
-  const appName = vscode.env.appName.toLowerCase();
-  const uriScheme = vscode.env.uriScheme.toLowerCase();
-
-  if (appName.includes("cursor") || uriScheme.startsWith("cursor")) {
-    _detected = "cursor";
-  } else if (typeof vscode.lm !== "undefined") {
-    _detected = "vscode";
-  } else {
-    _detected = "unknown";
-  }
+  _detected = detectEditorKind(vscode.env.appName, vscode.env.uriScheme, typeof vscode.lm !== "undefined");
 
   return _detected;
 }

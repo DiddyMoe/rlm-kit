@@ -20,14 +20,22 @@ import type {
   InboundMessage,
   OutboundMessage,
   CompletionMessage,
+  LlmResponseMessage,
   PendingRequest,
   REPLResult,
 } from "./types";
+
+interface LlmHandlerResult {
+  readonly text: string;
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+}
 
 // ── Constants ───────────────────────────────────────────────────────
 
 const READY_TIMEOUT_MS = 30_000;
 const COMPLETION_TIMEOUT_MS = 600_000; // 10 min for long RLM runs
+const SOFT_CANCEL_FALLBACK_MS = 5_000;
 
 // ── BackendBridge class ─────────────────────────────────────────────
 
@@ -52,13 +60,19 @@ export class BackendBridge {
 
   /** Callback for LLM requests in builtin mode. */
   private llmHandler:
-    | ((prompt: string, model: string | null) => Promise<string>)
+    | ((prompt: string, model: string | null) => Promise<LlmHandlerResult>)
     | null = null;
 
   /** Callback for progress messages. */
   private progressHandler:
     | ((nonce: string, iteration: number, maxIterations: number, text: string) => void)
     | null = null;
+
+  /** Callback for chunk messages. */
+  private chunkHandler: ((nonce: string, text: string) => void) | null = null;
+
+  /** Timer used to escalate soft cancel to hard process kill. */
+  private cancelFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly pythonPath: string) {}
 
@@ -89,93 +103,14 @@ export class BackendBridge {
     });
 
     const repoRoot = path.join(__dirname, "..", "..");
-    const filteredEnv = BackendBridge.buildChildEnv(repoRoot);
-
-    this.proc = cp.spawn(this.pythonPath, ["-u", scriptPath], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: filteredEnv,
-      cwd: repoRoot,
-    });
-
+    const processHandle = this.spawnBackendProcess(scriptPath, repoRoot);
+    this.proc = processHandle;
     this.buffer = "";
     this.ready = false;
-
-    // Wire up stdout
-    this.proc.stdout?.setEncoding("utf-8");
-    this.proc.stdout?.on("data", (chunk: string) => this.onStdout(chunk));
-
-    // Wire up stderr (log only)
-    this.proc.stderr?.setEncoding("utf-8");
-    this.proc.stderr?.on("data", (chunk: string) => {
-      logger.warn("BackendBridge", "Python stderr", { text: chunk.trim() });
-    });
-
-    // Handle process exit — guard with generation check
-    this.proc.on("exit", (code, signal) => {
-      logger.info("BackendBridge", "Process exited", { code, signal });
-      if (gen !== this.generation) {
-        return; // stale event from a previous process — ignore
-      }
-      this.proc = null;
-      this.ready = false;
-
-      // Reject all pending requests
-      const exitError = new Error(`Python backend exited (code=${code}, signal=${signal})`);
-      for (const [, pending] of this.pendingCompletions) {
-        pending.reject(exitError);
-      }
-      this.pendingCompletions.clear();
-      for (const [, pending] of this.pendingExecs) {
-        pending.reject(exitError);
-      }
-      this.pendingExecs.clear();
-
-      if (this.readyReject) {
-        this.readyReject(exitError);
-        this.readyResolve = null;
-        this.readyReject = null;
-      }
-    });
-
-    this.proc.on("error", (err) => {
-      logger.error("BackendBridge", "Process spawn error", { error: err.message });
-      if (gen !== this.generation) {
-        return; // stale
-      }
-      if (this.readyReject) {
-        this.readyReject(err);
-        this.readyResolve = null;
-        this.readyReject = null;
-      }
-    });
-
-    // Wait for ready (with timeout — timer is cleaned up in both paths)
-    let readyTimer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      readyTimer = setTimeout(
-        () => reject(new Error(`Backend did not become ready within ${READY_TIMEOUT_MS}ms`)),
-        READY_TIMEOUT_MS,
-      );
-    });
-
-    try {
-      await Promise.race([this.readyPromise, timeout]);
-    } finally {
-      clearTimeout(readyTimer);
-    }
-
-    // Send configuration
-    this.send({
-      type: "configure",
-      provider: config.provider,
-      backend: config.backend,
-      model: config.model,
-      backendKwargs: config.backendKwargs,
-      subBackend: config.subBackend,
-      subBackendKwargs: config.subBackendKwargs,
-      maxIterations: config.maxIterations,
-      maxOutputChars: config.maxOutputChars,
-    });
+    this.wireProcessStreams(processHandle);
+    this.wireProcessLifecycle(processHandle, gen);
+    await this.waitForReadyOrTimeout();
+    this.sendConfigure(config);
 
     logger.info("BackendBridge", "Backend started and configured");
   }
@@ -198,7 +133,25 @@ export class BackendBridge {
    * pending promise.
    */
   cancelAll(): void {
-    this.killProcess();
+    if (!this.isAlive()) {
+      return;
+    }
+
+    this.send({ type: "cancel" });
+    if (this.pendingCompletions.size === 0) {
+      return;
+    }
+
+    this.clearCancelFallbackTimer();
+    this.cancelFallbackTimer = setTimeout(() => {
+      if (this.pendingCompletions.size === 0) {
+        return;
+      }
+      logger.warn("BackendBridge", "Soft cancellation timed out; terminating backend", {
+        pendingCompletions: this.pendingCompletions.size,
+      });
+      this.killProcess();
+    }, SOFT_CANCEL_FALLBACK_MS);
   }
 
   // ── Public API ────────────────────────────────────────────────────
@@ -237,10 +190,12 @@ export class BackendBridge {
       this.pendingCompletions.set(nonce, {
         resolve: (value: string) => {
           clearTimeout(timer);
+          this.maybeClearCancelFallbackTimer();
           resolve(value);
         },
         reject: (err: Error) => {
           clearTimeout(timer);
+          this.maybeClearCancelFallbackTimer();
           reject(err);
         },
       });
@@ -280,7 +235,9 @@ export class BackendBridge {
   }
 
   /** Register a handler for LLM requests (builtin mode). */
-  setLlmHandler(handler: (prompt: string, model: string | null) => Promise<string>): void {
+  setLlmHandler(
+    handler: (prompt: string, model: string | null) => Promise<LlmHandlerResult>,
+  ): void {
     this.llmHandler = handler;
   }
 
@@ -289,6 +246,11 @@ export class BackendBridge {
     handler: (nonce: string, iteration: number, maxIterations: number, text: string) => void,
   ): void {
     this.progressHandler = handler;
+  }
+
+  /** Register a handler for streamed text chunks. */
+  setChunkHandler(handler: (nonce: string, text: string) => void): void {
+    this.chunkHandler = handler;
   }
 
   // ── Internal: message IO ──────────────────────────────────────────
@@ -334,51 +296,31 @@ export class BackendBridge {
   private handleMessage(msg: InboundMessage): void {
     switch (msg.type) {
       case "ready":
-        this.ready = true;
-        if (this.readyResolve) {
-          this.readyResolve();
-          this.readyResolve = null;
-          this.readyReject = null;
-        }
+        this.handleReadyMessage();
         break;
 
       case "configured":
-        logger.info("BackendBridge", "Backend configured", {
-          provider: msg.provider,
-          backend: msg.backend,
-        });
+        this.handleConfiguredMessage(msg);
         break;
 
-      case "result": {
-        const pending = this.pendingCompletions.get(msg.nonce);
-        if (pending) {
-          this.pendingCompletions.delete(msg.nonce);
-          pending.resolve(msg.text);
-        }
+      case "chunk":
+        this.handleChunkMessage(msg);
         break;
-      }
 
-      case "exec_result": {
-        const pending = this.pendingExecs.get(msg.nonce);
-        if (pending) {
-          this.pendingExecs.delete(msg.nonce);
-          pending.resolve({
-            stdout: msg.stdout,
-            stderr: msg.stderr,
-            error: msg.error,
-          });
-        }
+      case "result":
+        this.handleResultMessage(msg);
         break;
-      }
+
+      case "exec_result":
+        this.handleExecResultMessage(msg);
+        break;
 
       case "llm_request":
         void this.handleLlmRequest(msg.nonce, msg.prompt, msg.model);
         break;
 
       case "progress":
-        if (this.progressHandler) {
-          this.progressHandler(msg.nonce, msg.iteration, msg.maxIterations, msg.text);
-        }
+        this.handleProgressMessage(msg);
         break;
 
       case "error":
@@ -386,13 +328,71 @@ export class BackendBridge {
         break;
 
       case "pong":
-        logger.debug("BackendBridge", "Pong received");
+        this.handlePongMessage();
         break;
 
       default:
-        logger.warn("BackendBridge", "Unknown message type", { msg });
+        this.handleUnknownMessage(msg);
         break;
     }
+  }
+
+  private handleReadyMessage(): void {
+    this.ready = true;
+    if (!this.readyResolve) {
+      return;
+    }
+    this.readyResolve();
+    this.readyResolve = null;
+    this.readyReject = null;
+  }
+
+  private handleConfiguredMessage(msg: Extract<InboundMessage, { type: "configured" }>): void {
+    logger.info("BackendBridge", "Backend configured", {
+      provider: msg.provider,
+      backend: msg.backend,
+    });
+  }
+
+  private handleChunkMessage(msg: Extract<InboundMessage, { type: "chunk" }>): void {
+    if (this.chunkHandler) {
+      this.chunkHandler(msg.nonce, msg.text);
+    }
+  }
+
+  private handleResultMessage(msg: Extract<InboundMessage, { type: "result" }>): void {
+    const pending = this.pendingCompletions.get(msg.nonce);
+    if (pending) {
+      this.pendingCompletions.delete(msg.nonce);
+      pending.resolve(msg.text);
+    }
+    this.maybeClearCancelFallbackTimer();
+  }
+
+  private handleExecResultMessage(msg: Extract<InboundMessage, { type: "exec_result" }>): void {
+    const pending = this.pendingExecs.get(msg.nonce);
+    if (pending) {
+      this.pendingExecs.delete(msg.nonce);
+      pending.resolve({
+        stdout: msg.stdout,
+        stderr: msg.stderr,
+        error: msg.error,
+      });
+    }
+  }
+
+  private handleProgressMessage(msg: Extract<InboundMessage, { type: "progress" }>): void {
+    if (this.progressHandler) {
+      this.progressHandler(msg.nonce, msg.iteration, msg.maxIterations, msg.text);
+    }
+  }
+
+  private handlePongMessage(): void {
+    logger.debug("BackendBridge", "Pong received");
+  }
+
+  private handleUnknownMessage(msg: InboundMessage): void {
+    logger.warn("BackendBridge", "Unknown message type", { msg });
   }
 
   /** Route an error message to the correct pending request, or log it. */
@@ -402,6 +402,7 @@ export class BackendBridge {
       if (completion) {
         this.pendingCompletions.delete(nonce);
         completion.reject(new Error(error));
+        this.maybeClearCancelFallbackTimer();
         return;
       }
       const exec = this.pendingExecs.get(nonce);
@@ -433,8 +434,19 @@ export class BackendBridge {
     }
 
     try {
-      const text = await this.llmHandler(prompt, model);
-      this.send({ type: "llm_response", nonce, text });
+      const result = await this.llmHandler(prompt, model);
+      const payload: LlmResponseMessage = {
+        type: "llm_response",
+        nonce,
+        text: result.text,
+        ...(result.promptTokens !== undefined
+          ? { promptTokens: result.promptTokens }
+          : {}),
+        ...(result.completionTokens !== undefined
+          ? { completionTokens: result.completionTokens }
+          : {}),
+      };
+      this.send(payload);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this.send({ type: "llm_response", nonce, error: message });
@@ -478,11 +490,115 @@ export class BackendBridge {
     return env;
   }
 
+  private spawnBackendProcess(scriptPath: string, repoRoot: string): cp.ChildProcess {
+    const filteredEnv = BackendBridge.buildChildEnv(repoRoot);
+    return cp.spawn(this.pythonPath, ["-u", scriptPath], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: filteredEnv,
+      cwd: repoRoot,
+    });
+  }
+
+  private wireProcessStreams(processHandle: cp.ChildProcess): void {
+    processHandle.stdout?.setEncoding("utf-8");
+    processHandle.stdout?.on("data", (chunk: string) => this.onStdout(chunk));
+
+    processHandle.stderr?.setEncoding("utf-8");
+    processHandle.stderr?.on("data", (chunk: string) => {
+      logger.warn("BackendBridge", "Python stderr", { text: chunk.trim() });
+    });
+  }
+
+  private wireProcessLifecycle(processHandle: cp.ChildProcess, gen: number): void {
+    processHandle.on("exit", (code, signal) => {
+      logger.info("BackendBridge", "Process exited", { code, signal });
+      if (gen !== this.generation) {
+        return;
+      }
+      this.proc = null;
+      this.ready = false;
+
+      const exitError = new Error(`Python backend exited (code=${code}, signal=${signal})`);
+      for (const [, pending] of this.pendingCompletions) {
+        pending.reject(exitError);
+      }
+      this.pendingCompletions.clear();
+      for (const [, pending] of this.pendingExecs) {
+        pending.reject(exitError);
+      }
+      this.pendingExecs.clear();
+
+      if (this.readyReject) {
+        this.readyReject(exitError);
+        this.readyResolve = null;
+        this.readyReject = null;
+      }
+    });
+
+    processHandle.on("error", (err) => {
+      logger.error("BackendBridge", "Process spawn error", { error: err.message });
+      if (gen !== this.generation) {
+        return;
+      }
+      if (this.readyReject) {
+        this.readyReject(err);
+        this.readyResolve = null;
+        this.readyReject = null;
+      }
+    });
+  }
+
+  private async waitForReadyOrTimeout(): Promise<void> {
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      readyTimer = setTimeout(
+        () => reject(new Error(`Backend did not become ready within ${READY_TIMEOUT_MS}ms`)),
+        READY_TIMEOUT_MS,
+      );
+    });
+
+    try {
+      await Promise.race([this.readyPromise, timeout]);
+    } finally {
+      clearTimeout(readyTimer);
+    }
+  }
+
+  private sendConfigure(config: ProviderConfig): void {
+    this.send({
+      type: "configure",
+      provider: config.provider,
+      backend: config.backend,
+      model: config.model,
+      backendKwargs: config.backendKwargs,
+      subBackend: config.subBackend,
+      subBackendKwargs: config.subBackendKwargs,
+      maxIterations: config.maxIterations,
+      maxOutputChars: config.maxOutputChars,
+      environment: config.environment,
+    });
+  }
+
   private generateNonce(): string {
     return crypto.randomUUID();
   }
 
+  private clearCancelFallbackTimer(): void {
+    if (this.cancelFallbackTimer) {
+      clearTimeout(this.cancelFallbackTimer);
+      this.cancelFallbackTimer = null;
+    }
+  }
+
+  private maybeClearCancelFallbackTimer(): void {
+    if (this.pendingCompletions.size === 0) {
+      this.clearCancelFallbackTimer();
+    }
+  }
+
   private killProcess(): void {
+    this.clearCancelFallbackTimer();
+
     if (this.proc) {
       try {
         this.proc.kill("SIGTERM");

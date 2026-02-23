@@ -12,43 +12,14 @@
  */
 
 import * as vscode from "vscode";
-import type { LlmProvider, ClientBackend } from "./types";
+import type { ClientBackend, LlmProvider } from "./types";
+import {
+  DEFAULT_RLM_CONFIG,
+  normalizeRlmConfig,
+  type RlmConfig,
+} from "./configModel";
 
-// ── Config shape ────────────────────────────────────────────────────
-
-export interface RlmConfig {
-  readonly provider: LlmProvider;
-  readonly backend: ClientBackend;
-  readonly model: string;
-  readonly baseUrl: string;
-  readonly subBackend: ClientBackend | undefined;
-  readonly subModel: string | undefined;
-  readonly maxIterations: number;
-  readonly maxOutputChars: number;
-  readonly pythonPath: string;
-  readonly showIterationDetails: boolean;
-  readonly tracingEnabled: boolean;
-  readonly logLevel: string;
-  readonly logMaxSizeMB: number;
-}
-
-// ── Defaults ────────────────────────────────────────────────────────
-
-const DEFAULTS: RlmConfig = {
-  provider: "builtin",
-  backend: "openai",
-  model: "gpt-4o",
-  baseUrl: "",
-  subBackend: undefined,
-  subModel: undefined,
-  maxIterations: 30,
-  maxOutputChars: 20_000,
-  pythonPath: "python3",
-  showIterationDetails: true,
-  tracingEnabled: true,
-  logLevel: "debug",
-  logMaxSizeMB: 10,
-};
+export type { RlmConfig } from "./configModel";
 
 // ── Service ─────────────────────────────────────────────────────────
 
@@ -57,7 +28,7 @@ export class ConfigService implements vscode.Disposable {
   private readonly _onDidChange = new vscode.EventEmitter<RlmConfig>();
   readonly onDidChange = this._onDidChange.event;
 
-  private _config: RlmConfig = DEFAULTS;
+  private _config: RlmConfig = DEFAULT_RLM_CONFIG;
   private _disposables: vscode.Disposable[] = [];
 
   private constructor() {}
@@ -103,23 +74,21 @@ export class ConfigService implements vscode.Disposable {
   private read(): RlmConfig {
     const s = vscode.workspace.getConfiguration("rlm");
 
-    const rawSubBackend = s.get<string>("subBackend", "");
-    const rawSubModel = s.get<string>("subModel", "");
-
-    return {
-      provider: s.get<LlmProvider>("llmProvider", DEFAULTS.provider),
-      backend: s.get<ClientBackend>("backend", DEFAULTS.backend),
-      model: s.get<string>("model", DEFAULTS.model),
-      baseUrl: s.get<string>("baseUrl", DEFAULTS.baseUrl),
-      subBackend: rawSubBackend ? (rawSubBackend as ClientBackend) : undefined,
-      subModel: rawSubModel || undefined,
-      maxIterations: s.get<number>("maxIterations", DEFAULTS.maxIterations),
-      maxOutputChars: s.get<number>("maxOutputChars", DEFAULTS.maxOutputChars),
-      pythonPath: s.get<string>("pythonPath", DEFAULTS.pythonPath),
-      showIterationDetails: s.get<boolean>("showIterationDetails", DEFAULTS.showIterationDetails),
-      tracingEnabled: s.get<boolean>("tracingEnabled", DEFAULTS.tracingEnabled),
-      logLevel: s.get<string>("logLevel", DEFAULTS.logLevel),
-      logMaxSizeMB: s.get<number>("logMaxSizeMB", DEFAULTS.logMaxSizeMB),
-    };
+    return normalizeRlmConfig({
+      provider: s.get<LlmProvider>("llmProvider"),
+      backend: s.get<ClientBackend>("backend"),
+      model: s.get<string>("model"),
+      baseUrl: s.get<string>("baseUrl"),
+      subBackend: s.get<string>("subBackend"),
+      subModel: s.get<string>("subModel"),
+      maxIterations: s.get<number>("maxIterations"),
+      maxOutputChars: s.get<number>("maxOutputChars"),
+      pythonPath: s.get<string>("pythonPath"),
+      showIterationDetails: s.get<boolean>("showIterationDetails"),
+      environment: s.get<string>("environment"),
+      tracingEnabled: s.get<boolean>("tracingEnabled"),
+      logLevel: s.get<string>("logLevel"),
+      logMaxSizeMB: s.get<number>("logMaxSizeMB"),
+    });
   }
 }

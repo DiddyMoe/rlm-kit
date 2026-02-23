@@ -33,7 +33,7 @@ import signal
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 # ── Parent PID watcher ───────────────────────────────────────────────
 _PARENT_PID = os.getppid()
@@ -75,6 +75,10 @@ def send_result(nonce: str, text: str) -> None:
     send_msg({"type": "result", "nonce": nonce, "text": text})
 
 
+def send_chunk(nonce: str, text: str) -> None:
+    send_msg({"type": "chunk", "nonce": nonce, "text": text})
+
+
 def send_progress(nonce: str, iteration: int, max_iterations: int, text: str = "") -> None:
     send_msg(
         {
@@ -85,6 +89,10 @@ def send_progress(nonce: str, iteration: int, max_iterations: int, text: str = "
             "text": text,
         }
     )
+
+
+class SoftCancelRequested(Exception):
+    pass
 
 
 # ── Response registry for VsCodeLM round-trips ──────────────────────
@@ -117,9 +125,14 @@ class ProgressLogger:
 
     def __init__(self) -> None:
         self._iteration_count = 0
+        self._last_response = ""
 
     def reset(self) -> None:
         self._iteration_count = 0
+        self._last_response = ""
+
+    def get_last_response(self) -> str:
+        return self._last_response
 
     def log_metadata(self, metadata: Any) -> None:
         """No-op for metadata (we only care about iterations for progress)."""
@@ -130,7 +143,11 @@ class ProgressLogger:
         self._iteration_count += 1
         nonce = getattr(STATE, "current_progress_nonce", "") or ""
         max_iter = getattr(STATE, "current_progress_max_iterations", 30) or 30
-        text = (getattr(iteration, "response", None) or "")[:500]
+        response = getattr(iteration, "response", None) or ""
+        self._last_response = response
+        if STATE.cancel_requested.is_set():
+            raise SoftCancelRequested()
+        text = response[:500]
         send_progress(nonce, self._iteration_count, max_iter, text)
 
 
@@ -149,16 +166,26 @@ class BackendState:
         self.sub_backend_kwargs: dict[str, Any] | None = None
         self.max_iterations: int = 30
         self.max_output_chars: int = 20000
+        self.environment: str = "local"
         self.rlm_instance: Any = None  # RLM or None
         self.progress_logger = ProgressLogger()
         self.current_progress_nonce: str = ""
         self.current_progress_max_iterations: int = 30
+        self.cancel_requested = threading.Event()
+
+    def emit_root_chunk(self, chunk: str) -> None:
+        """Emit a root-stream chunk tied to the currently active completion nonce."""
+        nonce = self.current_progress_nonce
+        if not nonce or not chunk:
+            return
+        send_chunk(nonce, chunk)
 
     def configure(self, msg: dict[str, Any]) -> None:
         """Process a 'configure' message from the extension."""
         self.provider = msg.get("provider", "builtin")
         self.max_iterations = msg.get("maxIterations", 30)
         self.max_output_chars = msg.get("maxOutputChars", 20000)
+        self.environment = msg.get("environment", "local")
         self.backend = msg.get("backend", "vscode_lm")
         self.backend_kwargs = msg.get("backendKwargs", {})
         self.sub_backend = msg.get("subBackend")
@@ -172,27 +199,51 @@ class BackendState:
                 "send_fn": send_msg,
                 "register_response_fn": register_llm_response,
             }
+        else:
+            self._apply_litellm_backend_aliases()
         # For api_key mode, backend and backend_kwargs come directly from config
 
         self.configured = True
         self.rlm_instance = None  # Force re-creation on next completion
         send_msg({"type": "configured", "provider": self.provider, "backend": self.backend})
 
+    def _apply_litellm_backend_aliases(self) -> None:
+        """Map extension-only backend names to litellm provider routing."""
+        aliases: dict[str, str] = {
+            "openrouter": "openrouter",
+            "vercel": "vercel",
+            "vllm": "vllm",
+        }
+
+        provider = aliases.get(self.backend)
+        if provider is None:
+            return
+
+        model_name = self.backend_kwargs.get("model_name")
+        if isinstance(model_name, str) and model_name:
+            prefixed_model_name = (
+                model_name if model_name.startswith(f"{provider}/") else f"{provider}/{model_name}"
+            )
+            self.backend_kwargs["model_name"] = prefixed_model_name
+
+        self.backend = "litellm"
+
     def get_or_create_rlm(self, persistent: bool = False) -> Any:
         """Lazily create the RLM instance."""
         if self.rlm_instance is not None:
             return self.rlm_instance
 
-        from rlm.core.rlm import RLM
+        from rlm.core.rlm import RLM, RLMConfig
 
         rlm_kwargs: dict[str, Any] = {
             "backend": self.backend,
             "backend_kwargs": self.backend_kwargs,
-            "environment": "local",
+            "environment": self.environment,
             "environment_kwargs": {},
             "max_iterations": self.max_iterations,
             "persistent": persistent,
             "logger": self.progress_logger,
+            "on_root_chunk": self.emit_root_chunk,
         }
 
         # Wire up sub-LM if configured
@@ -200,7 +251,7 @@ class BackendState:
             rlm_kwargs["other_backends"] = [self.sub_backend]
             rlm_kwargs["other_backend_kwargs"] = [self.sub_backend_kwargs]
 
-        self.rlm_instance = RLM(**rlm_kwargs)
+        self.rlm_instance = RLM(RLMConfig(**rlm_kwargs))
         return self.rlm_instance
 
 
@@ -213,37 +264,70 @@ def handle_configure(msg: dict[str, Any]) -> None:
     STATE.configure(msg)
 
 
+def _create_rlm_for_completion(persistent: bool) -> Any:
+    return STATE.get_or_create_rlm(persistent=persistent)
+
+
+def _resolve_completion_inputs(msg: dict[str, Any]) -> tuple[str, str, Any, str | None, bool]:
+    nonce = cast(str, msg.get("nonce", ""))
+    prompt = cast(str, msg.get("prompt", ""))
+    context = msg.get("context")
+    root_prompt_raw = msg.get("rootPrompt")
+    root_prompt = root_prompt_raw if isinstance(root_prompt_raw, str) else None
+    persistent = cast(bool, msg.get("persistent", False))
+    return nonce, prompt, context, root_prompt, persistent
+
+
+def _start_completion_tracking(nonce: str) -> None:
+    STATE.current_progress_nonce = nonce
+    STATE.current_progress_max_iterations = STATE.max_iterations
+    STATE.progress_logger.reset()
+    STATE.cancel_requested.clear()
+
+
+def _completion_payload(prompt: str, context: Any) -> Any:
+    return context if context else prompt
+
+
+def _emit_soft_cancelled_result(nonce: str) -> None:
+    best_so_far = STATE.progress_logger.get_last_response()
+    if not best_so_far:
+        best_so_far = "Request cancelled before any completed iteration produced output."
+    chunk_size = 256
+    for index in range(0, len(best_so_far), chunk_size):
+        send_chunk(nonce, best_so_far[index : index + chunk_size])
+    send_result(nonce, best_so_far)
+
+
+def _finish_completion_tracking() -> None:
+    STATE.current_progress_nonce = ""
+    STATE.cancel_requested.clear()
+
+
 def handle_completion(msg: dict[str, Any]) -> None:
     """Run a full RLM completion and send back the result."""
-    nonce = msg.get("nonce", "")
-    prompt = msg.get("prompt", "")
-    context = msg.get("context")
-    root_prompt = msg.get("rootPrompt")
-    persistent = msg.get("persistent", False)
+    nonce, prompt, context, root_prompt, persistent = _resolve_completion_inputs(msg)
 
     if not STATE.configured:
         send_error(nonce, "Backend not configured. Send a 'configure' message first.")
         return
 
-    STATE.current_progress_nonce = nonce
-    STATE.current_progress_max_iterations = STATE.max_iterations
-    STATE.progress_logger.reset()
+    _start_completion_tracking(nonce)
 
     try:
-        rlm = STATE.get_or_create_rlm(persistent=persistent)
-
-        # The context (file contents, references, etc.) is the main payload.
-        # The prompt is the user's question.
-        payload = context if context else prompt
-
-        result = rlm.completion(prompt=payload, root_prompt=root_prompt or prompt)
+        rlm = _create_rlm_for_completion(persistent=persistent)
+        payload = _completion_payload(prompt, context)
+        result = rlm.completion(prompt=payload, root_prompt=root_prompt if root_prompt else prompt)
         response_text = result.response if hasattr(result, "response") else str(result)
         send_result(nonce, response_text)
+
+    except SoftCancelRequested:
+        _emit_soft_cancelled_result(nonce)
 
     except Exception as e:
         send_error(nonce, f"{type(e).__name__}: {e}")
     finally:
-        STATE.current_progress_nonce = ""
+        _finish_completion_tracking()
 
 
 def handle_execute(msg: dict[str, Any]) -> None:
@@ -258,7 +342,13 @@ def handle_execute(msg: dict[str, Any]) -> None:
     try:
         from rlm.environments.local_repl import LocalREPL
 
-        repl = LocalREPL(context_payload="")
+        repl = None
+        if STATE.rlm_instance is not None:
+            repl = getattr(STATE.rlm_instance, "_persistent_env", None)
+
+        if repl is None:
+            repl = LocalREPL(context_payload="")
+
         result = repl.execute_code(code)
         send_msg(
             {
@@ -286,6 +376,10 @@ def handle_ping(msg: dict[str, Any]) -> None:
     send_msg({"type": "pong", "nonce": nonce})
 
 
+def handle_cancel(_msg: dict[str, Any]) -> None:
+    STATE.cancel_requested.set()
+
+
 def handle_shutdown(_msg: dict[str, Any]) -> None:
     """Graceful shutdown."""
     if STATE.rlm_instance is not None:
@@ -299,6 +393,7 @@ def handle_shutdown(_msg: dict[str, Any]) -> None:
 HANDLERS: dict[str, Any] = {
     "configure": handle_configure,
     "completion": handle_completion,
+    "cancel": handle_cancel,
     "execute": handle_execute,
     "ping": handle_ping,
     "shutdown": handle_shutdown,

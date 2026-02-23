@@ -20,7 +20,10 @@ import { logger } from "./logger";
 import { ConfigService } from "./configService";
 import { RLMChatParticipant } from "./rlmParticipant";
 import { ApiKeyManager } from "./apiKeyManager";
+import { registerCursorMcpServer } from "./cursorMcpRegistration";
 import { detectEditor, isCursor } from "./platform";
+import { registerRlmMcpServerDefinitionProvider } from "./mcpServerProvider";
+import { registerLanguageModelTools } from "./tools";
 import type { ClientBackend } from "./types";
 
 let participant: RLMChatParticipant | null = null;
@@ -77,15 +80,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // ── Chat participant (VS Code only) ────────────────────────────
   if (!isCursor()) {
+    registerRlmMcpServerDefinitionProvider(context);
+
     participant = new RLMChatParticipant(context, apiKeys, configService);
     context.subscriptions.push({ dispose: () => participant?.dispose() });
     try {
       await participant.register();
+      registerLanguageModelTools(context, () => participant);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error("Extension", "Failed to register participant", { error: msg });
     }
   } else {
+    registerCursorMcpServer(context);
+
     logger.info("Extension", "Running in Cursor — chat participant not available");
     vscode.window.showInformationMessage(
       "RLM: Cursor detected. Use the api_key provider with a direct backend for RLM integration.",
