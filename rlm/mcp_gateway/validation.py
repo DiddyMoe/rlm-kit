@@ -25,6 +25,8 @@ class PathValidator:
         ".secret",
     ]
 
+    RESTRICTED_PATTERNS: tuple[str, ...] = tuple(_RESTRICTED_PATTERNS)
+
     @staticmethod
     def validate_path(path: str, allowed_roots: list[str]) -> tuple[bool, str | None]:
         """Validate that a path is within allowed roots.
@@ -38,59 +40,57 @@ class PathValidator:
         if not allowed_roots:
             return False, "No allowed roots configured for session"
 
-        # R3 Compliance: Block path traversal patterns before normalization
-        if ".." in path or (path.startswith("/") and not path.startswith(tuple(allowed_roots))):
-            normalized_check = os.path.normpath(path)
-            if ".." in normalized_check:
-                return False, f"Path traversal detected: '{path}' contains '..'"
+        traversal_error = PathValidator._check_traversal(path, allowed_roots)
+        if traversal_error is not None:
+            return False, traversal_error
 
-        # Normalize and resolve symlinks (prevents symlink-based path traversal)
         try:
-            normalized = os.path.normpath(path)
-            if not os.path.isabs(normalized):
-                # Make absolute relative to first allowed root
-                if allowed_roots:
-                    normalized = os.path.abspath(os.path.join(allowed_roots[0], normalized))
-                else:
-                    normalized = os.path.abspath(normalized)
-
-            # R3 Compliance: Check if path is a symlink pointing outside roots
-            if os.path.islink(normalized):
-                symlink_resolved = os.path.realpath(normalized)
-
-                # Validate symlink target is within allowed roots
-                symlink_valid = False
-                for root in allowed_roots:
-                    root_norm = os.path.realpath(os.path.abspath(root))
-                    try:
-                        Path(symlink_resolved).relative_to(root_norm)
-                        symlink_valid = True
-                        break
-                    except ValueError:
-                        continue
-
-                if not symlink_valid:
-                    return False, f"Symlink '{path}' points outside allowed roots"
-
-            # Resolve symlinks to prevent symlink-based bypass
-            normalized = os.path.realpath(normalized)
+            normalized = PathValidator._normalize_and_resolve(path, allowed_roots)
         except Exception as e:
             return False, f"Invalid path: {e}"
 
-        # Check if within any allowed root (also resolve symlinks in roots)
-        for root in allowed_roots:
-            root_norm = os.path.normpath(os.path.abspath(root))
-            try:
-                # Resolve symlinks in root as well
-                root_norm = os.path.realpath(root_norm)
-                # Check if path is within root
-                Path(normalized).relative_to(root_norm)
-                return True, None
-            except ValueError:
-                # Not within this root, try next
-                continue
+        if PathValidator._is_within_allowed_roots(normalized, allowed_roots):
+            return True, None
 
         return False, f"Path '{path}' is outside allowed roots: {allowed_roots}"
+
+    @staticmethod
+    def _check_traversal(path: str, allowed_roots: list[str]) -> str | None:
+        if ".." not in path and (not path.startswith("/") or path.startswith(tuple(allowed_roots))):
+            return None
+        normalized_check = os.path.normpath(path)
+        if ".." in normalized_check:
+            return f"Path traversal detected: '{path}' contains '..'"
+        return None
+
+    @staticmethod
+    def _normalize_and_resolve(path: str, allowed_roots: list[str]) -> str:
+        normalized = os.path.normpath(path)
+        if not os.path.isabs(normalized):
+            normalized = os.path.abspath(os.path.join(allowed_roots[0], normalized))
+
+        if os.path.islink(normalized):
+            PathValidator._validate_symlink_target(path, normalized, allowed_roots)
+
+        return os.path.realpath(normalized)
+
+    @staticmethod
+    def _validate_symlink_target(path: str, normalized: str, allowed_roots: list[str]) -> None:
+        symlink_resolved = os.path.realpath(normalized)
+        if PathValidator._is_within_allowed_roots(symlink_resolved, allowed_roots):
+            return
+        raise ValueError(f"Symlink '{path}' points outside allowed roots")
+
+    @staticmethod
+    def _is_within_allowed_roots(normalized_path: str, allowed_roots: list[str]) -> bool:
+        for root in allowed_roots:
+            root_norm = os.path.realpath(os.path.normpath(os.path.abspath(root)))
+            try:
+                Path(normalized_path).relative_to(root_norm)
+                return True
+            except ValueError:
+                continue
+        return False
 
     @classmethod
     def is_restricted_path(cls, path: str) -> bool:

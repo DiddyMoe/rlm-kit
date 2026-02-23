@@ -23,7 +23,7 @@ from _repo_root import find_repo_root  # noqa: E402
 sys.path.insert(0, str(find_repo_root(Path(__file__).resolve().parent)))
 
 # Import and run the modular server
-from rlm.mcp_gateway.server import main_http
+from rlm.mcp_gateway.server import HttpServerConfig, OAuthConfig, main_http
 
 if __name__ == "__main__":
     import argparse
@@ -46,6 +46,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--api-key",
         help="API key for authentication (http mode only, or set RLM_GATEWAY_API_KEY env var)",
+    )
+    parser.add_argument(
+        "--oauth-introspection-url",
+        help="OAuth 2.1 introspection endpoint URL (http mode)",
+    )
+    parser.add_argument(
+        "--oauth-client-id",
+        help="OAuth client ID for introspection endpoint basic auth",
+    )
+    parser.add_argument(
+        "--oauth-client-secret",
+        help="OAuth client secret for introspection endpoint basic auth",
     )
 
     args = parser.parse_args()
@@ -78,7 +90,19 @@ if __name__ == "__main__":
             )
             sys.exit(1)
 
-        main_http(host=args.host, port=args.port, repo_path=args.repo_path, api_key=args.api_key)
+        main_http(
+            HttpServerConfig(
+                host=args.host,
+                port=args.port,
+                repo_path=args.repo_path,
+                api_key=args.api_key,
+                oauth=OAuthConfig(
+                    introspection_url=args.oauth_introspection_url,
+                    client_id=args.oauth_client_id,
+                    client_secret=args.oauth_client_secret,
+                ),
+            )
+        )
     else:
         # stdio mode: PRIMARY METHOD for seamless local IDE integration
         import rlm.mcp_gateway.server as server_module

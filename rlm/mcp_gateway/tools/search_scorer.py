@@ -8,6 +8,59 @@ from collections import Counter
 from typing import Any
 
 
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"\w+", text)
+
+
+def _normalize_terms(query: str, text: str) -> tuple[str, str, list[str], Counter[str], int]:
+    query_lower = query.lower()
+    text_lower = text.lower()
+    query_terms = _tokenize(query_lower)
+    text_words = _tokenize(text_lower)
+    text_word_counts: Counter[str] = Counter(text_words)
+    return query_lower, text_lower, query_terms, text_word_counts, len(text_words)
+
+
+def _compute_score(
+    query_terms: list[str], text_word_counts: Counter[str], word_count: int
+) -> float:
+    if word_count == 0:
+        return 0.0
+
+    total_score = 0.0
+    matched_terms = 0
+    for term in query_terms:
+        if term not in text_word_counts:
+            continue
+
+        term_freq = text_word_counts[term] / word_count
+        total_score += min(term_freq * 10.0, 1.0)
+        matched_terms += 1
+
+    if matched_terms == 0:
+        return 0.0
+
+    return total_score / len(query_terms)
+
+
+def _apply_phrase_boost(base_score: float, query_lower: str, text_lower: str) -> float:
+    if query_lower in text_lower:
+        return min(base_score + 0.3, 1.0)
+    return base_score
+
+
+def _apply_start_word_boost(base_score: float, query_terms: list[str], text_lower: str) -> float:
+    text_stripped = text_lower.strip()
+    if not text_stripped:
+        return base_score
+
+    first_words = text_stripped.split()[:3]
+    if any(term in first_words for term in query_terms):
+        return min(base_score + 0.2, 1.0)
+
+    return base_score
+
+
 def calculate_term_frequency_score(query: str, text: str) -> float:
     """
     Calculate term frequency-based relevance score.
@@ -22,52 +75,18 @@ def calculate_term_frequency_score(query: str, text: str) -> float:
     if not query or not text:
         return 0.0
 
-    # Normalize to lowercase for case-insensitive matching
-    query_lower = query.lower()
-    text_lower = text.lower()
-
-    # Split query into terms (words)
-    query_terms = re.findall(r"\w+", query_lower)
+    query_lower, text_lower, query_terms, text_word_counts, word_count = _normalize_terms(
+        query, text
+    )
     if not query_terms:
-        # If no word terms, check for exact substring match
-        if query_lower in text_lower:
-            return 0.5
+        return 0.5 if query_lower in text_lower else 0.0
+
+    base_score = _compute_score(query_terms, text_word_counts, word_count)
+    if base_score == 0.0:
         return 0.0
 
-    # Count term frequencies in text
-    text_words = re.findall(r"\w+", text_lower)
-    text_word_counts = Counter(text_words)
-
-    # Calculate term frequency scores
-    total_score = 0.0
-    matched_terms = 0
-
-    for term in query_terms:
-        if term in text_word_counts:
-            # Term frequency: count of term / total words
-            term_freq = text_word_counts[term] / len(text_words) if text_words else 0.0
-
-            # Boost score if term appears multiple times
-            term_score = min(term_freq * 10.0, 1.0)  # Cap at 1.0
-            total_score += term_score
-            matched_terms += 1
-
-    # Normalize by number of query terms
-    if matched_terms == 0:
-        return 0.0
-
-    base_score = total_score / len(query_terms)
-
-    # Boost for exact phrase match
-    if query_lower in text_lower:
-        base_score = min(base_score + 0.3, 1.0)
-
-    # Boost for query terms appearing at start of line
-    text_stripped = text_lower.strip()
-    if text_stripped:
-        first_words = text_stripped.split()[:3]  # First 3 words
-        if any(term in first_words for term in query_terms):
-            base_score = min(base_score + 0.2, 1.0)
+    base_score = _apply_phrase_boost(base_score, query_lower, text_lower)
+    base_score = _apply_start_word_boost(base_score, query_terms, text_lower)
 
     return min(base_score, 1.0)
 

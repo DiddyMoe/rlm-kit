@@ -2,11 +2,19 @@
 
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from rlm.core.types import SnippetProvenance
 from rlm.mcp_gateway.constants import MAX_SESSION_OUTPUT_BYTES
+
+
+def _default_provenance() -> list[SnippetProvenance]:
+    return []
+
+
+def _default_accessed_spans() -> dict[str, set[tuple[int, int]]]:
+    return {}
 
 
 @dataclass
@@ -30,15 +38,8 @@ class Session:
     created_at: float
     tool_call_count: int = 0
     output_bytes: int = 0
-    provenance: list[SnippetProvenance] | None = None
-    accessed_spans: dict[str, set[tuple[int, int]]] | None = None
-
-    def __post_init__(self) -> None:
-        """Initialize default values for optional fields."""
-        if self.provenance is None:
-            self.provenance = []
-        if self.accessed_spans is None:
-            self.accessed_spans = {}
+    provenance: list[SnippetProvenance] = field(default_factory=_default_provenance)
+    accessed_spans: dict[str, set[tuple[int, int]]] = field(default_factory=_default_accessed_spans)
 
     def has_accessed_span(self, file_path: str, start_line: int, end_line: int) -> bool:
         """Check if a span has been accessed before."""
@@ -127,6 +128,13 @@ class SessionManager:
             del self._sessions[session_id]
             return True
         return False
+
+    def list_session_ids(self, prefix: str = "") -> list[str]:
+        """List active session IDs, optionally filtered by prefix."""
+        self._cleanup_expired_sessions()
+        if not prefix:
+            return sorted(self._sessions.keys())
+        return sorted(session_id for session_id in self._sessions if session_id.startswith(prefix))
 
     def check_budget(self, session: Session) -> tuple[bool, str | None]:
         """Check if session is within budget.

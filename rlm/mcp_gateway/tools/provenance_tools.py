@@ -36,7 +36,7 @@ class ProvenanceTools:
                 "spans": sorted(list(spans)),  # Sorted for deterministic output
             }
 
-        provenance_graph = {
+        provenance_graph: dict[str, Any] = {
             "spans": [p.to_dict() for p in session.provenance if p.file_path],
             "session_id": session_id,
             "tool_calls": session.tool_call_count,

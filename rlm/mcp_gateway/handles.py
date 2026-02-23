@@ -50,12 +50,37 @@ class HandleManager:
         """Get file handle info."""
         return self._handles.get(handle_id)
 
-    def create_chunk_id(self, file_handle: str, chunk_index: int) -> str:
+    def list_file_handle_ids(self, prefix: str = "", session_id: str | None = None) -> list[str]:
+        """List file handle IDs, optionally filtered by prefix and session ID."""
+        handle_ids: list[str] = []
+        for handle_id, handle in self._handles.items():
+            if prefix and not handle_id.startswith(prefix):
+                continue
+            if session_id is not None and handle.get("session_id") != session_id:
+                continue
+            handle_ids.append(handle_id)
+        return sorted(handle_ids)
+
+    def create_chunk_id(
+        self,
+        file_handle: str,
+        chunk_index: int,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        chunk_size: int | None = None,
+        overlap: int | None = None,
+        strategy: str | None = None,
+    ) -> str:
         """Create a chunk ID."""
         chunk_id = f"chunk_{uuid.uuid4().hex[:8]}"
         self._chunks[chunk_id] = {
             "file_handle": file_handle,
             "chunk_index": chunk_index,
+            "start_line": start_line,
+            "end_line": end_line,
+            "chunk_size": chunk_size,
+            "overlap": overlap,
+            "strategy": strategy,
             "created_at": time.time(),
         }
         return chunk_id
@@ -63,3 +88,9 @@ class HandleManager:
     def get_chunk_info(self, chunk_id: str) -> dict[str, Any] | None:
         """Get chunk info."""
         return self._chunks.get(chunk_id)
+
+    def list_chunk_ids(self, prefix: str = "") -> list[str]:
+        """List chunk IDs, optionally filtered by prefix."""
+        if not prefix:
+            return sorted(self._chunks.keys())
+        return sorted(chunk_id for chunk_id in self._chunks if chunk_id.startswith(prefix))

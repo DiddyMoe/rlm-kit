@@ -33,6 +33,128 @@ class ExecTools:
         """
         self.session_manager = session_manager
 
+    def _resolve_session(self, session_id: str) -> tuple[Any | None, str | None]:
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            return None, "Session not found"
+
+        within_budget, budget_error = self.session_manager.check_budget(session)
+        if not within_budget:
+            return None, budget_error
+
+        return session, None
+
+    def _validate_exec_request(self, code: str, timeout_ms: int) -> str | None:
+        code_bytes = len(code.encode("utf-8"))
+        if code_bytes > MAX_EXEC_CODE_SIZE:
+            return f"Code too large: {code_bytes} > {MAX_EXEC_CODE_SIZE} bytes"
+
+        if timeout_ms > 30000:
+            return f"Timeout too large: {timeout_ms}ms > 30000ms"
+
+        try:
+            validate_ast(code)
+        except ASTValidationError as error:
+            return error.message
+        except Exception as error:
+            return f"Code validation error: {error}"
+
+        return None
+
+    def _apply_memory_limit(self, memory_limit_mb: int) -> None:
+        if not hasattr(resource, "RLIMIT_AS") or memory_limit_mb <= 0:
+            return
+
+        try:
+            memory_bytes = memory_limit_mb * 1024 * 1024
+            _, hard = resource.getrlimit(resource.RLIMIT_AS)
+            resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, hard))
+        except (OSError, ValueError):
+            return
+
+    def _run_code(
+        self,
+        code: str,
+        timeout_ms: int,
+        memory_limit_mb: int,
+        restricted_globals: dict[str, Any],
+        restricted_locals: dict[str, Any],
+    ) -> tuple[bool, str | None, Exception | None]:
+        result_queue: queue.Queue[bool] = queue.Queue()
+        exception_queue: queue.Queue[Exception] = queue.Queue()
+
+        self._apply_memory_limit(memory_limit_mb)
+
+        def execute_in_thread() -> None:
+            try:
+                exec(code, restricted_globals, restricted_locals)
+                result_queue.put(True)
+            except MemoryError:
+                exception_queue.put(
+                    MemoryError(f"Memory limit exceeded: {memory_limit_mb}MB (R3 compliance)")
+                )
+            except Exception as error:
+                exception_queue.put(error)
+
+        thread = threading.Thread(target=execute_in_thread, daemon=True)
+        thread.start()
+        thread.join(timeout=timeout_ms / 1000.0)
+
+        if thread.is_alive():
+            print(
+                f"WARNING: Execution thread exceeded timeout {timeout_ms}ms (R3 compliance)",
+                file=sys.stderr,
+            )
+            return False, f"Execution timeout: exceeded {timeout_ms}ms (R3 compliance)", None
+
+        if not exception_queue.empty():
+            return False, None, exception_queue.get()
+
+        if result_queue.empty():
+            return False, "Execution did not complete", None
+
+        return True, None, None
+
+    def _build_failure_result(
+        self,
+        stdout_buf: io.StringIO,
+        stderr_buf: io.StringIO,
+        error: Exception,
+        execution_time: float,
+    ) -> dict[str, Any]:
+        stderr = stderr_buf.getvalue() + f"\n{type(error).__name__}: {error}"
+        return {
+            "success": False,
+            "stdout": stdout_buf.getvalue(),
+            "stderr": stderr,
+            "execution_time": execution_time,
+            "error": str(error),
+        }
+
+    def _truncate_output(self, stdout: str, stderr: str) -> tuple[str, str, int]:
+        stdout_bytes = len(stdout.encode("utf-8"))
+        stderr_bytes = len(stderr.encode("utf-8"))
+        total_output = stdout_bytes + stderr_bytes
+
+        if total_output > 1048576:
+            return stdout[:500000], stderr[:500000], 1000000
+
+        return stdout, stderr, total_output
+
+    def _record_exec_provenance(self, session: Any, code: str, output_bytes: int) -> str:
+        code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
+        provenance = SnippetProvenance(
+            file_path=None,
+            start_line=None,
+            end_line=None,
+            content_hash=code_hash,
+            source_type="execution",
+        )
+        session.provenance.append(provenance)
+        session.output_bytes += output_bytes
+        session.tool_call_count += 1
+        return code_hash
+
     def exec_run(
         self,
         session_id: str,
@@ -52,35 +174,13 @@ class ExecTools:
         Note: For stronger isolation, consider using Docker container mode
         (requires Docker infrastructure).
         """
-        session = self.session_manager.get_session(session_id)
-        if not session:
-            return {"success": False, "error": "Session not found"}
+        session, session_error = self._resolve_session(session_id)
+        if session_error:
+            return {"success": False, "error": session_error}
 
-        # Check budget
-        within_budget, error = self.session_manager.check_budget(session)
-        if not within_budget:
-            return {"success": False, "error": error}
-
-        # Enforce code size limit
-        code_bytes = len(code.encode("utf-8"))
-        if code_bytes > MAX_EXEC_CODE_SIZE:
-            return {
-                "success": False,
-                "error": f"Code too large: {code_bytes} > {MAX_EXEC_CODE_SIZE} bytes",
-            }
-
-        # Enforce timeout
-        if timeout_ms > 30000:  # Max 30 seconds
-            return {"success": False, "error": f"Timeout too large: {timeout_ms}ms > 30000ms"}
-
-        # Security: AST-based blocking (more robust than pattern matching)
-        try:
-            validate_ast(code)
-        except ASTValidationError as e:
-            return {"success": False, "error": e.message}
-        except Exception as e:
-            # If AST parsing fails, fall back to pattern matching (shouldn't happen)
-            return {"success": False, "error": f"Code validation error: {e}"}
+        validation_error = self._validate_exec_request(code, timeout_ms)
+        if validation_error:
+            return {"success": False, "error": validation_error}
 
         # Execute in restricted environment
         start_time = time.time()
@@ -95,103 +195,33 @@ class ExecTools:
 
         try:
             with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
-                # R3 Compliance: Execute with timeout and resource limits
-                result_queue: queue.Queue[bool] = queue.Queue()
-                exception_queue: queue.Queue[Exception] = queue.Queue()
+                completed, execution_error, exception = self._run_code(
+                    code=code,
+                    timeout_ms=timeout_ms,
+                    memory_limit_mb=memory_limit_mb,
+                    restricted_globals=restricted_globals,
+                    restricted_locals=restricted_locals,
+                )
 
-                # R3 Compliance: Set memory limit if possible (Unix only)
-                if hasattr(resource, "RLIMIT_AS") and memory_limit_mb > 0:
-                    try:
-                        # Set memory limit (RLIMIT_AS = address space limit)
-                        memory_bytes = memory_limit_mb * 1024 * 1024
-                        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-                        resource.setrlimit(resource.RLIMIT_AS, (memory_bytes, hard))
-                    except (OSError, ValueError):
-                        # Memory limits not supported on this platform
-                        pass
+                if not completed and execution_error is not None:
+                    return {"success": False, "error": execution_error}
 
-                def execute_in_thread() -> None:
-                    try:
-                        exec(code, restricted_globals, restricted_locals)
-                        result_queue.put(True)
-                    except MemoryError:
-                        exception_queue.put(
-                            MemoryError(
-                                f"Memory limit exceeded: {memory_limit_mb}MB (R3 compliance)"
-                            )
-                        )
-                    except Exception as e:
-                        exception_queue.put(e)
-
-                thread = threading.Thread(target=execute_in_thread, daemon=True)
-                thread.start()
-                thread.join(timeout=timeout_ms / 1000.0)
-
-                # R3 Compliance: Check if thread is still alive (timeout exceeded)
-                if thread.is_alive():
-                    # Thread is still running - we can't kill it directly, but daemon=True
-                    # means it will be terminated when main thread exits
-                    # Log warning for monitoring
-                    print(
-                        f"WARNING: Execution thread exceeded timeout {timeout_ms}ms (R3 compliance)",
-                        file=sys.stderr,
-                    )
-                    # Restore sys.modules before returning
-                    restore_sys_modules(original_modules)
-                    return {
-                        "success": False,
-                        "error": f"Execution timeout: exceeded {timeout_ms}ms (R3 compliance)",
-                    }
-
-                # Check for exceptions
-                if not exception_queue.empty():
-                    raise exception_queue.get()
-
-                # Check if execution completed
-                if result_queue.empty():
-                    # R3 Compliance: Restore sys.modules before returning
-                    restore_sys_modules(original_modules)
-                    return {"success": False, "error": "Execution did not complete"}
+                if exception is not None:
+                    raise exception
 
             execution_time = time.time() - start_time
 
             stdout = stdout_buf.getvalue()
             stderr = stderr_buf.getvalue()
-        except Exception as e:
-            restore_sys_modules(original_modules)
+        except Exception as error:
             execution_time = time.time() - start_time
-            stderr = stderr_buf.getvalue() + f"\n{type(e).__name__}: {e}"
-            return {
-                "success": False,
-                "stdout": stdout_buf.getvalue(),
-                "stderr": stderr,
-                "execution_time": execution_time,
-                "error": str(e),
-            }
+            return self._build_failure_result(stdout_buf, stderr_buf, error, execution_time)
         finally:
             restore_sys_modules(original_modules)
 
         # Success path: enforce output limits and provenance
-        stdout_bytes = len(stdout.encode("utf-8"))
-        stderr_bytes = len(stderr.encode("utf-8"))
-        total_output = stdout_bytes + stderr_bytes
-
-        if total_output > 1048576:  # 1MB max
-            stdout = stdout[:500000]
-            stderr = stderr[:500000]
-            total_output = 1000000
-
-        code_hash = hashlib.sha256(code.encode()).hexdigest()[:16]
-        provenance = SnippetProvenance(
-            file_path=None,
-            start_line=None,
-            end_line=None,
-            content_hash=code_hash,
-            source_type="execution",
-        )
-        session.provenance.append(provenance)
-        session.output_bytes += total_output
-        session.tool_call_count += 1
+        stdout, stderr, total_output = self._truncate_output(stdout, stderr)
+        code_hash = self._record_exec_provenance(session, code, total_output)
 
         return {
             "success": True,
