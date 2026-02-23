@@ -10,10 +10,12 @@ import json
 import socket
 import struct
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from rlm.core.retry import retry_with_backoff
 from rlm.core.types import RLMChatCompletion
+
+JsonDict = dict[str, Any]
 
 # =============================================================================
 # Message Dataclasses
@@ -27,9 +29,10 @@ class LMRequest:
     Supports both single prompt (prompt field) and batched prompts (prompts field).
     """
 
-    prompt: str | dict[str, Any] | None = None
-    prompts: list[str | dict[str, Any]] | None = None
+    prompt: str | list[dict[str, Any]] | None = None
+    prompts: list[str | list[dict[str, Any]]] | None = None
     model: str | None = None
+    model_preferences: dict[str, Any] | None = None
     depth: int = 0
 
     @property
@@ -37,26 +40,49 @@ class LMRequest:
         """Check if this is a batched request."""
         return self.prompts is not None and len(self.prompts) > 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> JsonDict:
         """Convert to dict, excluding None values."""
-        d = {}
+        d: JsonDict = {}
         if self.prompt is not None:
             d["prompt"] = self.prompt
         if self.prompts is not None:
             d["prompts"] = self.prompts
         if self.model is not None:
             d["model"] = self.model
+        if self.model_preferences is not None:
+            d["model_preferences"] = self.model_preferences
         d["depth"] = self.depth
         return d
 
     @classmethod
-    def from_dict(cls, data: dict) -> "LMRequest":
+    def from_dict(cls, data: JsonDict) -> "LMRequest":
         """Create from dict. depth defaults to 0 if omitted."""
+        prompt_raw = data.get("prompt")
+        prompt: str | list[dict[str, Any]] | None = None
+        if isinstance(prompt_raw, str):
+            prompt = prompt_raw
+        elif isinstance(prompt_raw, list):
+            prompt = cast(list[dict[str, Any]], prompt_raw)
+
+        prompts_raw = data.get("prompts")
+        prompts: list[str | list[dict[str, Any]]] | None = None
+        if isinstance(prompts_raw, list):
+            prompts = cast(list[str | list[dict[str, Any]]], prompts_raw)
+
+        model = data.get("model")
+        model_preferences_raw = data.get("model_preferences")
+        model_preferences = (
+            cast(dict[str, Any], model_preferences_raw)
+            if isinstance(model_preferences_raw, dict)
+            else None
+        )
+        depth = int(data.get("depth", 0) or 0)
         return cls(
-            prompt=data.get("prompt"),
-            prompts=data.get("prompts"),
-            model=data.get("model"),
-            depth=data.get("depth", 0),
+            prompt=prompt,
+            prompts=prompts,
+            model=model if isinstance(model, str) else None,
+            model_preferences=model_preferences,
+            depth=depth,
         )
 
 
@@ -71,6 +97,10 @@ class LMResponse:
     chat_completion: RLMChatCompletion | None = None
     chat_completions: list[RLMChatCompletion] | None = None
 
+    def __post_init__(self) -> None:
+        if self.error is None and self.chat_completion is None and self.chat_completions is None:
+            raise ValueError("LMResponse requires error, chat_completion, or chat_completions")
+
     @property
     def success(self) -> bool:
         """Check if response was successful."""
@@ -81,7 +111,7 @@ class LMResponse:
         """Check if this is a batched response."""
         return self.chat_completions is not None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> JsonDict:
         """Convert to dict, excluding None values."""
         if self.error is not None:
             return {
@@ -101,25 +131,29 @@ class LMResponse:
                 "chat_completions": None,
                 "error": None,
             }
-        return {
-            "error": "No chat completion or error provided.",
-            "chat_completion": None,
-            "chat_completions": None,
-        }
+        raise ValueError("LMResponse requires error, chat_completion, or chat_completions")
 
     @classmethod
-    def from_dict(cls, data: dict) -> "LMResponse":
+    def from_dict(cls, data: JsonDict) -> "LMResponse":
         """Create from dict."""
-        chat_completions = None
-        if data.get("chat_completions"):
-            chat_completions = [RLMChatCompletion.from_dict(c) for c in data["chat_completions"]]
+        chat_completions: list[RLMChatCompletion] | None = None
+        chat_completions_raw = data.get("chat_completions")
+        if isinstance(chat_completions_raw, list):
+            parsed: list[RLMChatCompletion] = []
+            for item in cast(list[Any], chat_completions_raw):
+                if isinstance(item, dict):
+                    parsed.append(RLMChatCompletion.from_dict(cast(dict[str, Any], item)))
+            chat_completions = parsed
 
-        chat_completion = None
-        if data.get("chat_completion"):
-            chat_completion = RLMChatCompletion.from_dict(data["chat_completion"])
+        chat_completion: RLMChatCompletion | None = None
+        chat_completion_raw = data.get("chat_completion")
+        if isinstance(chat_completion_raw, dict):
+            chat_completion = RLMChatCompletion.from_dict(cast(dict[str, Any], chat_completion_raw))
+
+        error = data.get("error")
 
         return cls(
-            error=data.get("error"),
+            error=error if isinstance(error, str) else None,
             chat_completion=chat_completion,
             chat_completions=chat_completions,
         )
@@ -145,7 +179,7 @@ class LMResponse:
 # =============================================================================
 
 
-def socket_send(sock: socket.socket, data: dict) -> None:
+def socket_send(sock: socket.socket, data: JsonDict) -> None:
     """Send a length-prefixed JSON message over socket.
 
     Protocol: 4-byte big-endian length prefix + UTF-8 JSON payload.
@@ -154,7 +188,7 @@ def socket_send(sock: socket.socket, data: dict) -> None:
     sock.sendall(struct.pack(">I", len(payload)) + payload)
 
 
-def socket_recv(sock: socket.socket) -> dict:
+def socket_recv(sock: socket.socket) -> JsonDict:
     """Receive a length-prefixed JSON message from socket.
 
     Protocol: 4-byte big-endian length prefix + UTF-8 JSON payload.
@@ -175,10 +209,13 @@ def socket_recv(sock: socket.socket) -> dict:
             raise ConnectionError("Connection closed before message complete")
         payload += chunk
 
-    return json.loads(payload.decode("utf-8"))
+    decoded = json.loads(payload.decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("Socket payload must decode to a JSON object")
+    return cast(JsonDict, decoded)
 
 
-def socket_request(address: tuple[str, int], data: dict, timeout: int = 300) -> dict:
+def socket_request(address: tuple[str, int], data: JsonDict, timeout: int = 300) -> JsonDict:
     """Send a request and receive a response over a new socket connection.
 
     Opens a new TCP connection, sends the request, waits for response, then closes.
@@ -214,7 +251,7 @@ def send_lm_request(
         if depth is not None:
             request.depth = depth
 
-        def _do_request() -> dict:
+        def _do_request() -> JsonDict:
             return socket_request(address, request.to_dict(), timeout)
 
         response_data = retry_with_backoff(
@@ -231,7 +268,7 @@ def send_lm_request(
 
 def send_lm_request_batched(
     address: tuple[str, int],
-    prompts: list[str | dict[str, Any]],
+    prompts: list[str | list[dict[str, Any]]],
     model: str | None = None,
     timeout: int = 300,
     depth: int = 0,
@@ -251,7 +288,7 @@ def send_lm_request_batched(
     try:
         request = LMRequest(prompts=prompts, model=model, depth=depth)
 
-        def _do_request() -> dict:
+        def _do_request() -> JsonDict:
             return socket_request(address, request.to_dict(), timeout)
 
         response_data = retry_with_backoff(
@@ -265,7 +302,8 @@ def send_lm_request_batched(
 
         if not response.success:
             # Return error responses for all prompts
-            return [LMResponse.error_response(response.error)] * len(prompts)
+            error_message = response.error or "Unknown LM handler error"
+            return [LMResponse.error_response(error_message)] * len(prompts)
 
         if response.chat_completions is None:
             return [LMResponse.error_response("No completions returned")] * len(prompts)
@@ -277,3 +315,32 @@ def send_lm_request_batched(
         ]
     except Exception as e:
         return [LMResponse.error_response(f"Request failed: {e}")] * len(prompts)
+
+
+def normalize_model_preferences(raw: Any) -> dict[str, Any] | None:
+    """Normalize model preference payloads from transport requests.
+
+    Accepts both snake_case and camelCase variants used by different MCP
+    clients and returns a canonical dictionary for LM routing.
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    normalized: dict[str, Any] = {}
+    key_aliases = {
+        "model": "model",
+        "modelname": "model_name",
+        "model_name": "model_name",
+        "preferredmodel": "preferred_model",
+        "preferred_model": "preferred_model",
+        "candidates": "candidates",
+        "contains": "contains",
+        "family": "family",
+    }
+
+    for key, value in cast(dict[str, Any], raw).items():
+        normalized_key = key_aliases.get(str(key).replace("-", "").replace(" ", "").lower())
+        if normalized_key is not None:
+            normalized[normalized_key] = value
+
+    return normalized or None

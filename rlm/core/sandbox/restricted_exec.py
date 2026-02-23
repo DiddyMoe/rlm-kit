@@ -1,7 +1,8 @@
 """Restricted execution environment setup for sandboxed code execution."""
 
 import sys
-from typing import Any
+from types import ModuleType
+from typing import Any, cast
 
 from rlm.core.sandbox.safe_builtins import get_safe_builtins
 
@@ -179,7 +180,7 @@ def setup_runtime_blocking() -> dict[str, Any]:
     for mod_name in _BLOCKED_MODULES_LIST:
         if mod_name in sys.modules:
             original_modules[mod_name] = sys.modules[mod_name]
-        sys.modules[mod_name] = BlockedModule()
+        sys.modules[mod_name] = cast(ModuleType, BlockedModule())
     return original_modules
 
 

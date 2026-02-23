@@ -58,8 +58,18 @@ _BLOCKED_FUNCTIONS = {
     "quit",
 }
 
+BLOCKED_MODULES: frozenset[str] = frozenset(_BLOCKED_MODULES)
+BLOCKED_FUNCTIONS: frozenset[str] = frozenset(_BLOCKED_FUNCTIONS)
 
-def _check_import_node(node: ast.Import | ast.ImportFrom) -> str | None:
+
+def _extract_string_constant(node: ast.AST) -> str | None:
+    """Extract string values from AST constant nodes."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _check_import_node(node: ast.AST) -> str | None:
     """Check if an import node is blocked.
 
     Args:
@@ -73,7 +83,7 @@ def _check_import_node(node: ast.Import | ast.ImportFrom) -> str | None:
             module_name = alias.name.split(".")[0]
             if module_name in _BLOCKED_MODULES:
                 return f"Blocked import: {alias.name}"
-    elif isinstance(node, ast.ImportFrom):
+    if isinstance(node, ast.ImportFrom):
         if node.module:
             module_name = node.module.split(".")[0]
             if module_name in _BLOCKED_MODULES:
@@ -110,7 +120,7 @@ def _check_getattr_builtin_access(node: ast.Call) -> str | None:
     Returns:
         Error message if blocked, None otherwise
     """
-    if not isinstance(node.func, ast.Name) or node.func.id != "getattr":
+    if not _is_getattr_call(node):
         return None
 
     if len(node.args) < 2:
@@ -119,27 +129,45 @@ def _check_getattr_builtin_access(node: ast.Call) -> str | None:
     first_arg = node.args[0]
     second_arg = node.args[1]
 
-    # Check if accessing __builtins__
-    is_builtins_access = False
-    if isinstance(first_arg, ast.Name) and first_arg.id == "__builtins__":
-        is_builtins_access = True
-    elif isinstance(first_arg, ast.Attribute):
-        if isinstance(first_arg.value, ast.Name) and first_arg.value.id == "__builtins__":
-            is_builtins_access = True
-
-    if not is_builtins_access:
+    if not _is_builtins_access_target(first_arg):
         return None
 
-    # Extract attribute name
-    if isinstance(second_arg, ast.Constant):
-        attr_name = second_arg.value
-    elif isinstance(second_arg, ast.Str):  # Python < 3.8
-        attr_name = second_arg.s
-    else:
+    attr_name = _extract_string_constant(second_arg)
+    if attr_name is None:
         return None
 
     if attr_name in _BLOCKED_FUNCTIONS:
         return f"Blocked dynamic access to builtin: getattr(__builtins__, '{attr_name}')"
+
+    return None
+
+
+def _is_getattr_call(node: ast.Call) -> bool:
+    return isinstance(node.func, ast.Name) and node.func.id == "getattr"
+
+
+def _is_builtins_access_target(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id == "__builtins__"
+
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        return node.value.id == "__builtins__"
+
+    return False
+
+
+def _check_node_safety(node: ast.AST) -> str | None:
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return _check_import_node(node)
+
+    if isinstance(node, ast.Call):
+        error = _check_call_node(node)
+        if error:
+            return error
+        return _check_getattr_builtin_access(node)
+
+    if isinstance(node, ast.Subscript):
+        return _check_subscript_builtin_access(node)
 
     return None
 
@@ -156,19 +184,8 @@ def _check_subscript_builtin_access(node: ast.Subscript) -> str | None:
     if not isinstance(node.value, ast.Name) or node.value.id != "__builtins__":
         return None
 
-    # Extract key
-    if isinstance(node.slice, ast.Constant):
-        key = node.slice.value
-    elif isinstance(node.slice, ast.Str):  # Python < 3.8
-        key = node.slice.s
-    elif isinstance(node.slice, ast.Index):  # Python < 3.9
-        if isinstance(node.slice.value, ast.Constant):
-            key = node.slice.value.value
-        elif isinstance(node.slice.value, ast.Str):
-            key = node.slice.value.s
-        else:
-            return None
-    else:
+    key = _extract_string_constant(node.slice)
+    if key is None:
         return None
 
     if key in _BLOCKED_FUNCTIONS:
@@ -193,27 +210,7 @@ def validate_ast(code: str) -> None:
     except SyntaxError as e:
         raise ASTValidationError(f"Invalid Python syntax: {e}") from e
 
-    # Walk AST and check for blocked operations
     for node in ast.walk(tree):
-        # Check imports
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            error = _check_import_node(node)
-            if error:
-                raise ASTValidationError(error)
-
-        # Check function calls
-        if isinstance(node, ast.Call):
-            error = _check_call_node(node)
-            if error:
-                raise ASTValidationError(error)
-
-            # Check for getattr(__builtins__, ...) bypass attempts
-            error = _check_getattr_builtin_access(node)
-            if error:
-                raise ASTValidationError(error)
-
-        # Check for __builtins__["..."] bypass attempts
-        if isinstance(node, ast.Subscript):
-            error = _check_subscript_builtin_access(node)
-            if error:
-                raise ASTValidationError(error)
+        error = _check_node_safety(node)
+        if error:
+            raise ASTValidationError(error)
