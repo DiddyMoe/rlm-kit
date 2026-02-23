@@ -11,7 +11,7 @@ class PathValidator:
     under any one of them (after normalization and symlink resolution).
     """
 
-    _RESTRICTED_PATTERNS = [
+    RESTRICTED_PATTERNS: tuple[str, ...] = (
         ".git",
         "__pycache__",
         ".venv",
@@ -23,9 +23,7 @@ class PathValidator:
         "secrets",
         "credentials",
         ".secret",
-    ]
-
-    RESTRICTED_PATTERNS: tuple[str, ...] = tuple(_RESTRICTED_PATTERNS)
+    )
 
     @staticmethod
     def validate_path(path: str, allowed_roots: list[str]) -> tuple[bool, str | None]:
@@ -96,4 +94,4 @@ class PathValidator:
     def is_restricted_path(cls, path: str) -> bool:
         """Check if a path is restricted (e.g., .git, secrets)."""
         path_str = str(path).lower()
-        return any(pattern in path_str for pattern in cls._RESTRICTED_PATTERNS)
+        return any(pattern in path_str for pattern in cls.RESTRICTED_PATTERNS)
