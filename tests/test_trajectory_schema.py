@@ -133,3 +133,74 @@ def test_trajectory_jsonl_iteration_line_has_expected_keys():
         assert REPL_RESULT_KEYS.issubset(code_blocks[0]["result"].keys()), (
             f"Missing result keys: {REPL_RESULT_KEYS - code_blocks[0]['result'].keys()}"
         )
+
+
+class TestRLMLoggerInMemory:
+    """Tests for RLMLogger with log_dir=None (in-memory only mode)."""
+
+    def _make_metadata(self) -> RLMMetadata:
+        return RLMMetadata(
+            root_model="test",
+            max_depth=1,
+            max_iterations=5,
+            backend="openai",
+            backend_kwargs={},
+            environment_type="local",
+            environment_kwargs={},
+        )
+
+    def _make_iteration(self) -> RLMIteration:
+        result = REPLResult(stdout="hi", stderr="", locals={})
+        block = CodeBlock(code="print('hi')", result=result)
+        return RLMIteration(
+            prompt="p",
+            response="r",
+            code_blocks=[block],
+            final_answer=None,
+            iteration_time=0.5,
+        )
+
+    def test_in_memory_does_not_crash(self):
+        logger = RLMLogger(log_dir=None)
+        logger.log_metadata(self._make_metadata())
+        logger.log(self._make_iteration())
+        assert logger.iteration_count == 1
+
+    def test_in_memory_no_file_created(self):
+        logger = RLMLogger(log_dir=None)
+        assert logger.log_file_path is None
+
+    def test_get_trajectory_captures_iterations(self):
+        logger = RLMLogger(log_dir=None)
+        logger.log_metadata(self._make_metadata())
+        logger.log(self._make_iteration())
+        logger.log(self._make_iteration())
+
+        traj = logger.get_trajectory()
+        assert "run_metadata" in traj
+        assert "iterations" in traj
+        assert len(traj["iterations"]) == 2
+        assert traj["run_metadata"]["root_model"] == "test"
+
+    def test_clear_iterations_resets_state(self):
+        logger = RLMLogger(log_dir=None)
+        logger.log_metadata(self._make_metadata())
+        logger.log(self._make_iteration())
+        assert logger.iteration_count == 1
+
+        logger.clear_iterations()
+        assert logger.iteration_count == 0
+
+        traj = logger.get_trajectory()
+        assert len(traj["iterations"]) == 0
+        # run_metadata persists across clears
+        assert traj["run_metadata"]["root_model"] == "test"
+
+    def test_disk_mode_also_captures_in_memory(self):
+        with tempfile.TemporaryDirectory() as log_dir:
+            logger = RLMLogger(log_dir=log_dir)
+            logger.log_metadata(self._make_metadata())
+            logger.log(self._make_iteration())
+
+            traj = logger.get_trajectory()
+            assert len(traj["iterations"]) == 1

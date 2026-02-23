@@ -147,6 +147,7 @@ multiline answer)"""
         # Complex nested dictionary
         text = "FINAL({'key': 'value', 'nested': {'a': 1, 'b': 2}})"
         result = find_final_answer(text)
+        assert result is not None
         assert "'key': 'value'" in result
         assert "'nested':" in result
 
@@ -214,6 +215,51 @@ multiline answer)"""
         result = find_final_answer(text_final_only)
         assert result == "direct_answer"
 
+    def test_final_inside_code_fence_is_ignored(self):
+        text = """The model is still reasoning.
+```python
+FINAL(should_not_match)
+```
+Need more work.
+"""
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_malformed_final_unclosed_parenthesis_returns_none(self):
+        text = "Still thinking...\nFINAL(unclosed"
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_bare_final_without_parentheses_returns_none(self):
+        text = "I might be done\nFINAL"
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_final_var_nonexistent_variable_reports_error(self):
+        env = LocalREPL()
+
+        try:
+            result = find_final_answer("FINAL_VAR(nonexistent)", environment=env)
+            assert result is not None
+            assert "Error" in result or "not found" in result.lower()
+        finally:
+            env.cleanup()
+
+    def test_final_callable_from_environment(self):
+        env = LocalREPL()
+
+        try:
+            env.execute_code("FINAL(42)")
+            result = find_final_answer("No FINAL marker in assistant text.", environment=env)
+            assert result == "42"
+
+            result_after_consume = find_final_answer(
+                "No FINAL marker in assistant text.", environment=env
+            )
+            assert result_after_consume is None
+        finally:
+            env.cleanup()
+
     def test_final_var_retrieves_actual_variables_from_environment(self):
         """Test that FINAL_VAR actually retrieves variables from a real code environment."""
         # Create a real LocalREPL environment
@@ -250,6 +296,7 @@ multiline answer)"""
             # Test retrieving dictionary variable
             text = "FINAL_VAR(nested)"
             result = find_final_answer(text, environment=env)
+            assert result is not None
             assert "'key': 'value'" in result or '"key": "value"' in result
             assert "'num': 123" in result or '"num": 123' in result
 
@@ -262,6 +309,7 @@ multiline answer)"""
             # Test that non-existent variable returns error message
             text = "FINAL_VAR(nonexistent)"
             result = find_final_answer(text, environment=env)
+            assert result is not None
             assert "Error" in result or "not found" in result.lower()
         finally:
             env.cleanup()
@@ -297,6 +345,12 @@ class TestFormatExecutionResult:
         result = REPLResult(stdout="", stderr="", locals={})
         formatted = format_execution_result(result)
         assert formatted == "No output"
+
+    def test_both_stdout_and_stderr(self):
+        result = REPLResult(stdout="partial output", stderr="Warning: something", locals={})
+        formatted = format_execution_result(result)
+        assert "partial output" in formatted
+        assert "Warning: something" in formatted
 
 
 class TestFormatIteration:

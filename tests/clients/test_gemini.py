@@ -1,6 +1,7 @@
 """Tests for the Gemini client."""
 
 import os
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -68,7 +69,7 @@ class TestGeminiClientUnit:
         """Test _prepare_contents with string input."""
         with patch("rlm.clients.gemini.genai.Client"):
             client = GeminiClient(api_key="test-key")
-            contents, system = client._prepare_contents("Hello world")
+            contents, system = cast(Any, client)._prepare_contents("Hello world")
             assert contents == "Hello world"
             assert system is None
 
@@ -80,10 +81,11 @@ class TestGeminiClientUnit:
                 {"role": "system", "content": "You are helpful"},
                 {"role": "user", "content": "Hello"},
             ]
-            contents, system = client._prepare_contents(messages)
+            contents, system = cast(Any, client)._prepare_contents(messages)
+            content_items = cast(list[Any], contents)
             assert system == "You are helpful"
-            assert len(contents) == 1
-            assert contents[0].role == "user"
+            assert len(content_items) == 1
+            assert getattr(content_items[0], "role", None) == "user"
 
     def test_prepare_contents_role_mapping(self):
         """Test _prepare_contents maps assistant to model."""
@@ -94,19 +96,20 @@ class TestGeminiClientUnit:
                 {"role": "assistant", "content": "Hi there"},
                 {"role": "user", "content": "How are you?"},
             ]
-            contents, system = client._prepare_contents(messages)
+            contents, system = cast(Any, client)._prepare_contents(messages)
+            content_items = cast(list[Any], contents)
             assert system is None
-            assert len(contents) == 3
-            assert contents[0].role == "user"
-            assert contents[1].role == "model"  # assistant -> model
-            assert contents[2].role == "user"
+            assert len(content_items) == 3
+            assert getattr(content_items[0], "role", None) == "user"
+            assert getattr(content_items[1], "role", None) == "model"  # assistant -> model
+            assert getattr(content_items[2], "role", None) == "user"
 
     def test_prepare_contents_invalid_type(self):
         """Test _prepare_contents raises on invalid input."""
         with patch("rlm.clients.gemini.genai.Client"):
             client = GeminiClient(api_key="test-key")
             with pytest.raises(ValueError, match="Invalid prompt type"):
-                client._prepare_contents(12345)
+                cast(Any, client)._prepare_contents(cast(Any, 12345))
 
     def test_completion_requires_model(self):
         """Test completion raises when no model specified."""

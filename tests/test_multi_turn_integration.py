@@ -8,12 +8,14 @@ Tests that multiple LM completion calls in one RLM session:
 5. Properly inform the model about available contexts/histories
 """
 
+from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
 
 import rlm.core.rlm as rlm_module
 from rlm import RLM
+from rlm.core.rlm import RLMConfig
 from rlm.core.types import ModelUsageSummary, UsageSummary
 
 
@@ -30,6 +32,10 @@ def create_mock_lm(responses: list[str]) -> Mock:
     return mock
 
 
+def _persistent_env(rlm: RLM) -> Any:
+    return cast(Any, getattr(rlm, "_persistent_env", None))
+
+
 class TestMultiTurnPersistentEnvironment:
     """Tests for environment persistence across completion calls."""
 
@@ -42,17 +48,19 @@ class TestMultiTurnPersistentEnvironment:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("First context")
-                first_env = rlm._persistent_env
+                first_env = _persistent_env(rlm)
 
                 mock_lm.completion.side_effect = list(responses)
 
                 rlm.completion("Second context")
-                second_env = rlm._persistent_env
+                second_env = _persistent_env(rlm)
 
                 assert first_env is second_env
                 assert first_env is not None
@@ -66,9 +74,11 @@ class TestMultiTurnPersistentEnvironment:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("First document")
                 mock_lm.completion.side_effect = list(responses)
@@ -76,7 +86,7 @@ class TestMultiTurnPersistentEnvironment:
                 mock_lm.completion.side_effect = list(responses)
                 rlm.completion("Third document")
 
-                env = rlm._persistent_env
+                env = _persistent_env(rlm)
                 assert env.get_context_count() == 3
                 assert env.locals["context_0"] == "First document"
                 assert env.locals["context_1"] == "Second document"
@@ -92,9 +102,11 @@ class TestMultiTurnPersistentEnvironment:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("Context A")
                 mock_lm.completion.side_effect = list(responses)
@@ -102,7 +114,7 @@ class TestMultiTurnPersistentEnvironment:
                 mock_lm.completion.side_effect = list(responses)
                 rlm.completion("Context C")
 
-                env = rlm._persistent_env
+                env = _persistent_env(rlm)
                 assert env.get_history_count() == 3
                 assert "history_0" in env.locals
                 assert "history_1" in env.locals
@@ -127,18 +139,20 @@ class TestMultiTurnPersistentEnvironment:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("Compute 42 * 2")
-                assert rlm._persistent_env.locals.get("computed_value") == 84
+                assert _persistent_env(rlm).locals.get("computed_value") == 84
 
                 mock_lm.completion.side_effect = list(second_responses)
                 rlm.completion("Add 10 to the previous result")
 
-                assert rlm._persistent_env.locals.get("computed_value") == 84
-                assert rlm._persistent_env.locals.get("result") == 94
+                assert _persistent_env(rlm).locals.get("computed_value") == 84
+                assert _persistent_env(rlm).locals.get("result") == 94
 
 
 class TestMultiTurnPromptAwareness:
@@ -153,9 +167,11 @@ class TestMultiTurnPromptAwareness:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("First")
                 mock_lm.completion.side_effect = list(responses)
@@ -176,9 +192,11 @@ class TestMultiTurnPromptAwareness:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("First task")
                 mock_lm.completion.side_effect = list(responses)
@@ -207,16 +225,18 @@ class TestMultiTurnCodeExecution:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("Document A")
 
                 mock_lm.completion.side_effect = list(second_responses)
                 rlm.completion("Document B")
 
-                env = rlm._persistent_env
+                env = _persistent_env(rlm)
                 assert env.locals["context_0"] == "Document A"
                 assert env.locals["context_1"] == "Document B"
 
@@ -233,16 +253,18 @@ class TestMultiTurnCodeExecution:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("First query")
 
                 mock_lm.completion.side_effect = list(second_responses)
                 rlm.completion("Second query")
 
-                env = rlm._persistent_env
+                env = _persistent_env(rlm)
                 assert "history" in env.locals
                 assert isinstance(env.locals["history"], list)
 
@@ -259,25 +281,54 @@ class TestNonPersistentMode:
             mock_get_client.return_value = mock_lm
 
             rlm = RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=False,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=False,
+                )
             )
 
             rlm.completion("First")
-            assert rlm._persistent_env is None
+            assert _persistent_env(rlm) is None
 
             mock_lm.completion.side_effect = list(responses)
             rlm.completion("Second")
-            assert rlm._persistent_env is None
+            assert _persistent_env(rlm) is None
 
     def test_default_is_non_persistent(self):
         """Default behavior should be non-persistent."""
         rlm = RLM(
-            backend="openai",
-            backend_kwargs={"model_name": "test"},
+            RLMConfig(
+                backend="openai",
+                backend_kwargs={"model_name": "test"},
+            )
         )
         assert rlm.persistent is False
+
+    def test_max_iterations_exhaustion_returns_default_answer(self):
+        """When no FINAL is produced, completion returns _default_answer output."""
+        responses = [
+            "I need to think more.",
+            "Still analyzing.",
+            "Fallback final answer.",
+        ]
+
+        with patch.object(rlm_module, "get_client") as mock_get_client:
+            mock_lm = create_mock_lm(responses)
+            mock_get_client.return_value = mock_lm
+
+            rlm = RLM(
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    max_iterations=2,
+                )
+            )
+            result = rlm.completion("Question with no FINAL output")
+
+            assert result.response == "Fallback final answer."
+            assert result.response != ""
+            assert mock_lm.completion.call_count == 3
 
 
 class TestPersistentModeResourceManagement:
@@ -292,14 +343,16 @@ class TestPersistentModeResourceManagement:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 rlm.completion("Test")
-                assert rlm._persistent_env is not None
+                assert _persistent_env(rlm) is not None
 
-            assert rlm._persistent_env is None
+            assert _persistent_env(rlm) is None
 
     def test_explicit_close(self):
         """Calling close() should clean up persistent environment."""
@@ -310,15 +363,17 @@ class TestPersistentModeResourceManagement:
             mock_get_client.return_value = mock_lm
 
             rlm = RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             )
             rlm.completion("Test")
-            assert rlm._persistent_env is not None
+            assert _persistent_env(rlm) is not None
 
             rlm.close()
-            assert rlm._persistent_env is None
+            assert _persistent_env(rlm) is None
 
 
 class TestPersistentModeValidation:
@@ -328,20 +383,24 @@ class TestPersistentModeValidation:
         """Persistent mode should raise error for unsupported environments."""
         with pytest.raises(ValueError, match="persistent=True is not supported"):
             RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                environment="docker",  # Not supported for persistent
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    environment="docker",  # Not supported for persistent
+                    persistent=True,
+                )
             )
 
     def test_local_environment_supported(self):
         """Local environment should support persistent mode."""
         # Should not raise
         rlm = RLM(
-            backend="openai",
-            backend_kwargs={"model_name": "test"},
-            environment="local",
-            persistent=True,
+            RLMConfig(
+                backend="openai",
+                backend_kwargs={"model_name": "test"},
+                environment="local",
+                persistent=True,
+            )
         )
         assert rlm.persistent is True
 
@@ -369,9 +428,11 @@ class TestMultiTurnEndToEnd:
             mock_get_client.return_value = mock_lm
 
             with RLM(
-                backend="openai",
-                backend_kwargs={"model_name": "test"},
-                persistent=True,
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "test"},
+                    persistent=True,
+                )
             ) as rlm:
                 result1 = rlm.completion("First document about cats")
                 assert "Summarized" in result1.response
@@ -384,7 +445,7 @@ class TestMultiTurnEndToEnd:
                 result3 = rlm.completion("Synthesize everything")
                 assert "synthesized" in result3.response
 
-                env = rlm._persistent_env
+                env = _persistent_env(rlm)
                 assert env.get_context_count() == 3
                 assert env.get_history_count() == 3
                 assert env.locals.get("doc1_summary") == "Has info about cats"

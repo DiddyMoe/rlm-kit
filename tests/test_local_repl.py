@@ -2,6 +2,7 @@
 
 import os
 
+from rlm.core.sandbox.safe_builtins import get_safe_builtins, get_safe_builtins_for_repl
 from rlm.environments.local_repl import LocalREPL
 
 
@@ -112,6 +113,42 @@ class TestLocalREPLBuiltins:
         assert abs(repl.locals["x"] - 3.14159) < 0.001
         repl.cleanup()
 
+    def test_eval_is_blocked(self):
+        """Test that eval is blocked in REPL builtins."""
+        repl = LocalREPL()
+        result = repl.execute_code("eval('1 + 1')")
+        assert "TypeError" in result.stderr
+        repl.cleanup()
+
+    def test_exec_is_blocked(self):
+        """Test that exec is blocked in REPL builtins."""
+        repl = LocalREPL()
+        result = repl.execute_code("exec('x = 1')")
+        assert "TypeError" in result.stderr
+        repl.cleanup()
+
+    def test_compile_is_blocked(self):
+        """Test that compile is blocked in REPL builtins."""
+        repl = LocalREPL()
+        result = repl.execute_code("compile('x = 1', '<string>', 'exec')")
+        assert "TypeError" in result.stderr
+        repl.cleanup()
+
+    def test_strict_builtins_are_more_restrictive(self):
+        """Strict builtins block more primitives than REPL builtins."""
+        strict_builtins = get_safe_builtins()
+        repl_builtins = get_safe_builtins_for_repl()
+
+        assert strict_builtins["__import__"] is None
+        assert strict_builtins["open"] is None
+        assert strict_builtins["globals"] is None
+        assert strict_builtins["locals"] is None
+
+        assert callable(repl_builtins["__import__"])
+        assert callable(repl_builtins["open"])
+        assert callable(repl_builtins["globals"])
+        assert callable(repl_builtins["locals"])
+
 
 class TestLocalREPLContextManager:
     """Tests for context manager usage."""
@@ -195,6 +232,33 @@ class TestLocalREPLCleanup:
         assert not os.path.exists(temp_dir)
 
 
+class TestLocalREPLEdgeCases:
+    """Tests for timeout and large-output behavior."""
+
+    def test_execution_timeout_stops_infinite_loop(self):
+        repl = LocalREPL(execution_timeout_seconds=0.05)
+        result = repl.execute_code("while True:\n    pass")
+        assert "ExecutionTimeoutError" in result.stderr
+        repl.cleanup()
+
+    def test_large_stdout_is_captured(self):
+        repl = LocalREPL()
+        payload = "x" * 100_000
+        result = repl.execute_code(f"print('{payload}')")
+        assert result.stderr == ""
+        assert len(result.stdout) >= 100_000
+        assert result.stdout.startswith("x")
+        repl.cleanup()
+
+    def test_binary_output_handled_gracefully(self):
+        repl = LocalREPL()
+        result = repl.execute_code("import sys\nsys.stdout.buffer.write(b'\\xff\\xfe')")
+        assert isinstance(result.stdout, str)
+        assert isinstance(result.stderr, str)
+        assert "AttributeError" in result.stderr
+        repl.cleanup()
+
+
 class TestLocalREPLSimulatingRLMNoPersistence:
     """
     Tests simulating RLM's non-persistent completion behavior.
@@ -243,3 +307,85 @@ class TestLocalREPLSimulatingRLMNoPersistence:
         assert "NameError" in result.stderr
         assert "my_helper" in result.stderr
         completion_2_env.cleanup()
+
+
+class TestLocalREPLScaffoldRestoration:
+    """Tests that scaffold names are restored after user code overwrites them."""
+
+    def test_llm_query_restored_after_overwrite(self):
+        """User code overwriting llm_query should not break subsequent calls."""
+        repl = LocalREPL()
+        original = repl.globals["llm_query"]
+
+        repl.execute_code("llm_query = 'oops'")
+
+        # After execute_code, scaffold should be restored
+        assert repl.globals["llm_query"] is original
+        repl.cleanup()
+
+    def test_final_var_restored_after_overwrite(self):
+        """User code overwriting FINAL_VAR should not break subsequent calls."""
+        repl = LocalREPL()
+        original = repl.globals["FINAL_VAR"]
+
+        repl.execute_code("FINAL_VAR = None")
+
+        assert repl.globals["FINAL_VAR"] is original
+        repl.cleanup()
+
+    def test_show_vars_restored_after_overwrite(self):
+        """User code overwriting SHOW_VARS should not break subsequent calls."""
+        repl = LocalREPL()
+        original = repl.globals["SHOW_VARS"]
+
+        repl.execute_code("SHOW_VARS = 123")
+
+        assert repl.globals["SHOW_VARS"] is original
+        repl.cleanup()
+
+    def test_context_restored_after_overwrite(self):
+        """User code overwriting context should not lose the loaded data."""
+        repl = LocalREPL(context_payload="important data")
+
+        repl.execute_code("context = 'overwritten'")
+
+        assert repl.locals["context"] == "important data"
+        repl.cleanup()
+
+    def test_history_restored_after_overwrite(self):
+        """User code overwriting history should not lose the stored history."""
+        repl = LocalREPL()
+        repl.add_history([{"role": "user", "content": "hello"}])
+
+        repl.execute_code("history = []")
+
+        assert repl.locals["history"] == [{"role": "user", "content": "hello"}]
+        repl.cleanup()
+
+    def test_multiple_overwrites_still_restored(self):
+        """Multiple overwrites in sequence should all be recovered."""
+        repl = LocalREPL(context_payload="my context")
+        original_fv = repl.globals["FINAL_VAR"]
+        original_lq = repl.globals["llm_query"]
+
+        repl.execute_code("FINAL_VAR = 1; llm_query = 2; context = 3")
+        assert repl.globals["FINAL_VAR"] is original_fv
+        assert repl.globals["llm_query"] is original_lq
+        assert repl.locals["context"] == "my context"
+
+        repl.execute_code("FINAL_VAR = 'x'; llm_query = 'y'; context = 'z'")
+        assert repl.globals["FINAL_VAR"] is original_fv
+        assert repl.globals["llm_query"] is original_lq
+        assert repl.locals["context"] == "my context"
+        repl.cleanup()
+
+    def test_non_scaffold_variables_not_affected(self):
+        """Regular user variables should persist normally across executions."""
+        repl = LocalREPL()
+
+        repl.execute_code("my_var = 42")
+        assert repl.locals["my_var"] == 42
+
+        repl.execute_code("my_var = my_var + 1")
+        assert repl.locals["my_var"] == 43
+        repl.cleanup()

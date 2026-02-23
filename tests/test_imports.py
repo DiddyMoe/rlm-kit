@@ -3,6 +3,7 @@
 import importlib
 import sys
 from collections import defaultdict
+from typing import cast
 
 import pytest
 
@@ -181,6 +182,13 @@ class TestEnvironmentImports:
         from rlm.environments.prime_repl import PrimeREPL
 
         assert PrimeREPL is not None
+
+    def test_e2b_repl_import(self):
+        """Test E2BREPL import."""
+        pytest.importorskip("e2b_code_interpreter")
+        from rlm.environments.e2b_repl import E2BREPL
+
+        assert E2BREPL is not None
 
     def test_get_environment_function(self):
         """Test get_environment function import."""
@@ -370,7 +378,8 @@ class TestImportConflicts:
             module_exports["rlm"] = {name for name in dir(rlm) if not name.startswith("_")}
 
         if hasattr(rlm.clients, "__all__"):
-            module_exports["rlm.clients"] = set(rlm.clients.__all__)
+            clients_all = cast(list[str], getattr(rlm.clients, "__all__", []))
+            module_exports["rlm.clients"] = set(clients_all)
         else:
             module_exports["rlm.clients"] = {
                 name for name in dir(rlm.clients) if not name.startswith("_")
