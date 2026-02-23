@@ -19,7 +19,7 @@ Top-20 with file/line pointers and low-risk resolutions. Update in place.
 | 13 | Log rotation multi-process | rlm/logger/rlm_logger.py | Per-instance; multi-process/session behavior | Doc: observability_gaps (Log rotation). Code: rotation/size limits = REQUIRES APPROVAL (STEP-013). |
 | 14 | Provider metrics aggregation | — | Usage in usage_summary; no aggregate dashboard | Doc: observability_gaps (Provider metrics). Optional export script from JSONL; no write-path change. |
 | 15 | MCP tool structured metrics | rlm/mcp_gateway/ | Gateway logs tool_call; no structured metrics | Doc: observability_gaps (MCP tool logging). Optional metrics export = approval. |
-| 16 | Cancellation not implemented | rlm/core/rlm.py | No mid-completion abort | Doc: failure_modes.md (Cancellation). Design for abort = approval. |
+| 16 | Cancellation not implemented | vscode-extension/python/rlm_backend.py, vscode-extension/src/backendBridge.ts | Soft cancel + fallback kill in extension bridge/backend | Done: RF-012 implemented `type: cancel`, iteration-bound soft cancellation, best-so-far result, and hard-kill fallback timeout. |
 | 17 | Concurrency assumptions | backendBridge.ts, rlm_backend.py | Session-scoped state; generation counter | Doc: failure_modes.md (Concurrency). No code change. |
 | 18 | Serialization (dill) lifecycle | rlm/environments/ | Isolated env state load/save | Doc: failure_modes.md (Serialization). Persistence tests = optional. |
 | 19 | Context overflow constants | rlm/core/constants.py, rlm/mcp_gateway/constants.py | MAX_SUB_CALL_PROMPT_CHARS alignment | Doc: failure_modes (Context overflow). Align constants = small approved patch. |

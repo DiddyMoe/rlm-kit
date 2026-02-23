@@ -28,12 +28,20 @@ Step-by-step usage from VS Code Agent Chat and Cursor Agent Chat. Single doc, tw
 ### Config reference
 
 - Settings under `rlm.*`: provider, backend, model, baseUrl, subBackend, subModel, maxIterations, maxOutputChars, pythonPath, showIterationDetails, tracingEnabled, logLevel, logMaxSizeMB.
+- In API-key mode, extension backend aliases `openrouter`, `vercel`, and `vllm` to `litellm` automatically, prefixing the model as `<provider>/<model>` for LiteLLM routing.
 - Trace log: default `logs/trace.jsonl` in workspace; configurable; redaction and rolling in extension logger.
 - Backend: Extension spawns `python -u rlm_backend.py` from repo root (parent of `vscode-extension/`); stdio JSON-over-newline.
 
 ### Optional: MCP in VS Code
 
-You can add the RLM MCP server to VS Code (e.g. for tool discovery). In workspace or user settings, set `mcp.servers.rlm-gateway` with `command`, `args`, `cwd`, `env` (same shape as Cursor). See [ide_matrix.md](ide_matrix.md) and [ide_touchpoints.md](ide_touchpoints.md).
+This repo includes a workspace MCP config at `.vscode/mcp.json` that registers `rlmGateway` in stdio mode. If needed, you can also add the same server in user configuration. See [ide_matrix.md](ide_matrix.md) and [ide_touchpoints.md](ide_touchpoints.md).
+
+One-click install URL:
+
+- `vscode:mcp/install?%7B%22name%22%3A%22rlmGateway%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22uv%22%2C%22args%22%3A%5B%22run%22%2C%22python%22%2C%22scripts%2Frlm_mcp_gateway.py%22%5D%2C%22cwd%22%3A%22%24%7BworkspaceFolder%7D%22%2C%22env%22%3A%7B%22PYTHONPATH%22%3A%22%24%7BworkspaceFolder%7D%22%7D%7D`
+- `vscode:mcp/install?%7B%22name%22%3A%22rlmGateway%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22uv%22%2C%22args%22%3A%5B%22run%22%2C%22--extra%22%2C%22mcp%22%2C%22python%22%2C%22scripts%2Frlm_mcp_gateway.py%22%5D%2C%22cwd%22%3A%22%24%7BworkspaceFolder%7D%22%2C%22env%22%3A%7B%22PYTHONPATH%22%3A%22%24%7BworkspaceFolder%7D%22%7D%7D`
+
+For contributors, `.vscode/mcp.json` includes MCP dev mode with watch (`rlm/mcp_gateway/**/*.py`) and Python debug launch settings.
 
 ---
 
@@ -44,7 +52,7 @@ You can add the RLM MCP server to VS Code (e.g. for tool discovery). In workspac
 - Python 3.11+, [uv](https://astral.sh/uv)
 - Cursor (MCP-supported version)
 - For **Cursor-as-outer-loop**: no RLM API key (Cursor’s LLM drives the agent; RLM tools are called by the agent).
-- For **RLM completion** (`rlm.complete`): set provider API key (e.g. `OPENAI_API_KEY`) in env or Cursor config.
+- For **RLM completion** (`rlm_complete`): set provider API key (e.g. `OPENAI_API_KEY`) in env or Cursor config.
 
 ### Setup
 
@@ -56,7 +64,7 @@ You can add the RLM MCP server to VS Code (e.g. for tool discovery). In workspac
   "mcpServers": {
     "rlm-gateway": {
       "command": "uv",
-      "args": ["run", "python", "scripts/rlm_mcp_gateway.py"],
+      "args": ["run", "--extra", "mcp", "python", "scripts/rlm_mcp_gateway.py"],
       "cwd": "${workspaceFolder}",
       "env": { "PYTHONPATH": "${workspaceFolder}" }
     }
@@ -69,18 +77,23 @@ You can add the RLM MCP server to VS Code (e.g. for tool discovery). In workspac
 ### Using RLM in Cursor Agent
 
 1. Open Agent Chat (or Plan/Ask/Debug). Cursor discovers tools from the RLM MCP server.
-2. **Primary (zero keys)**: Ask the agent to use the workspace; it can call `rlm.fs.list`, `rlm.search.query`, `rlm.span.read`, etc. Cursor’s LLM decides when to call `rlm.complete`; if it does, you must provide an API key (see below).
-3. **Full RLM completion**: To run the full RLM recursive loop from Cursor, the agent (or you) invokes the `rlm.complete` tool with `session_id` and `task`. Set `OPENAI_API_KEY` (or the provider you use) in the environment Cursor uses to run the MCP server (e.g. in `env` in `mcp.json`, or in Cursor’s env).
+2. **Primary (zero keys)**: Ask the agent to use the workspace; it can call `rlm_fs_list`, `rlm_search_query`, `rlm_span_read`, etc. Cursor’s LLM decides when to call `rlm_complete`; if it does, you must provide an API key (see below).
+3. **Full RLM completion**: To run the full RLM recursive loop from Cursor, the agent (or you) invokes the `rlm_complete` tool with `session_id` and `task`. Set `OPENAI_API_KEY` (or the provider you use) in the environment Cursor uses to run the MCP server (e.g. in `env` in `mcp.json`, or in Cursor’s env).
 
 ### MCP tool list (contract)
 
-- Session: `rlm.session.create`, `rlm.session.close`, `rlm.roots.set`
-- Filesystem: `rlm.fs.list`, `rlm.fs.manifest`, `rlm.fs.handle.create`
-- Spans/chunks: `rlm.span.read`, `rlm.chunk.create`, `rlm.chunk.get`
-- Search: `rlm.search.query`, `rlm.search.regex`
-- Execution: `rlm.exec.run`
-- Completion: `rlm.complete`
-- Provenance: `rlm.provenance.report`
+- Session: `rlm_session_create`, `rlm_session_close`, `rlm_roots_set`
+- Filesystem: `rlm_fs_list`, `rlm_fs_manifest`, `rlm_fs_handle_create`
+- Spans/chunks: `rlm_span_read`, `rlm_chunk_create`, `rlm_chunk_get`
+- Search: `rlm_search_query`, `rlm_search_regex`
+- Execution: `rlm_exec_run`
+- Completion: `rlm_complete`
+- Provenance: `rlm_provenance_report`
+
+Search tools accept optional `include_patterns` for multi-language retrieval. If omitted, search defaults to `*.py`.
+Examples:
+- `include_patterns: ["*.py", "*.ts", "*.tsx", "*.md"]`
+- `include_patterns: ["**/*.py", "**/*.md"]`
 
 See [ide_touchpoints.md](ide_touchpoints.md) for registration and config details.
 

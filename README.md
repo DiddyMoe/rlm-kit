@@ -61,6 +61,11 @@ Cursor integrates via MCP — no Chat Participant (Cursor doesn't support `vscod
 2. Ask Cursor to use the `rlm.complete` MCP tool
 3. RLM runs the full recursive loop with your API key
 
+### One-click VS Code MCP install
+
+- Install the RLM MCP gateway with this URL:
+      - `vscode:mcp/install?%7B%22name%22%3A%22rlmGateway%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22uv%22%2C%22args%22%3A%5B%22run%22%2C%22--extra%22%2C%22mcp%22%2C%22python%22%2C%22scripts%2Frlm_mcp_gateway.py%22%5D%2C%22cwd%22%3A%22%24%7BworkspaceFolder%7D%22%2C%22env%22%3A%7B%22PYTHONPATH%22%3A%22%24%7BworkspaceFolder%7D%22%7D%7D`
+
 ## Architecture
 
 ```

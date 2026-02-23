@@ -22,8 +22,8 @@ Cause, detection, mitigation. File pointers for implementation.
 ## Cancellation
 
 - **Cause**: User cancel; process kill; timeout.
-- **Detection**: Process exit or timeout; no in-loop cancellation token today.
-- **Mitigation**: Document current behavior (no mid-completion cancel); future design for abort required (approval).
+- **Detection**: `STATE.cancel_requested` in rlm_backend.py; iteration-bound soft cancellation with best-so-far result; hard-kill fallback at 5s.
+- **Mitigation**: Soft cancel + best-so-far result (RF-012). Gateway `rlm_complete` has no cancellation mechanism yet — would require MCP cancellation support.
 
 ## Concurrency
 
@@ -41,10 +41,23 @@ Cause, detection, mitigation. File pointers for implementation.
 
 - **Cause**: Malicious or unsafe code in REPL or MCP exec.
 - **Detection**: rlm/core/sandbox/ast_validator.py; restricted builtins in safe_builtins.py; path checks in rlm/mcp_gateway/validation.py.
-- **Mitigation**: Document two surfaces (LocalREPL vs exec_tools) in docs/quality or security note; safe defaults; path validation.
+- **Mitigation**: Document two surfaces (LocalREPL vs exec_tools) in docs/quality/security_surfaces.md; safe defaults; path validation.
 
 ## Serialization
 
 - **Cause**: Isolated env state (dill) load/save failures; version or env mismatch.
 - **Detection**: Load/save errors in isolated envs (e.g. modal_repl, prime_repl, daytona_repl).
 - **Mitigation**: Document lifecycle; add persistence tests where feasible.
+
+## Fix-induced regressions
+
+- **Cause**: Fixes to one module alter behavior, exception flow, ordering, or state handling in adjacent modules. Refactoring (type safety, nesting reduction, helper extraction) can subtly change semantics.
+- **Detection**: Tool verification after every fix (`make check`, `make ext-check`); regression check in debug-agent evidence gate; exposure check for newly visible issues.
+- **Mitigation**: Debug agent requires test coverage for cross-boundary fixes (Priority 2+). Convergence tracking in session summaries. New issues from fix exposure are added to the backlog rather than ignored.
+- **Cross-boundary risk**: TS ↔ Python ↔ socket/MCP boundaries are highest risk for fix-induced regressions because changes on one side may not be caught by the other side's tests until both sides are verified together.
+
+## Pipeline recall limits
+
+- **Cause**: The debug-plan can only find issues within its detection scope (static analysis, targeted review). The debug-agent can only fix what the plan puts in the backlog.
+- **Detection**: Convergence tracking: if the backlog grows instead of shrinking across cycles, the detection or fix quality has a problem.
+- **Mitigation**: Tool-first detection provides deterministic coverage within tooling scope. Orthogonal passes reduce blind spots. But runtime bugs, race conditions, and behavioral correctness issues remain outside scope. See debug-plan Limitations section.

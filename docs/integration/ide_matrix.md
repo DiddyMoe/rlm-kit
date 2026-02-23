@@ -15,7 +15,7 @@ Supported IDE targets and where configuration lives.
 ## Cursor
 
 - **Surface**: MCP only. Cursor does not expose the VS Code Chat API or `vscode.lm`, so the Chat Participant is not registered (extension detects and skips).
-- **Integration**: Cursor agent calls RLM MCP tools directly. Primary mode: Cursor-as-outer-loop (zero keys); alternate: user sets API key and uses `rlm.complete` MCP tool.
+- **Integration**: Cursor agent calls RLM MCP tools directly. Primary mode: Cursor-as-outer-loop (zero keys); alternate: user sets API key and uses `rlm_complete` MCP tool.
 - **Config location**: `.cursor/mcp.json` — defines MCP servers, e.g. `rlm-gateway` with `command`, `args`, `cwd`, `env` (e.g. `uv run python scripts/rlm_mcp_gateway.py` with `PYTHONPATH`).
 - **Server mode**: Stdio (default, local); HTTP (optional, for remote isolation, requires `--repo-path` and `--api-key` or `RLM_GATEWAY_API_KEY`).
 

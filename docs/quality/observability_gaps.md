@@ -8,15 +8,15 @@ No explicit run_id in RLMLogger metadata line; run identity is encoded in the **
 
 ## Progress visibility
 
-Backend does not emit progress during completion; extension cannot show per-iteration updates. Suggest progress callback or wrapper; design required.
+Done: ProgressLogger in rlm_backend.py emits per-iteration progress; extension bridge/orchestrator/participant deliver it to chat stream.
 
 ## Trajectory validation
 
-No schema validation of JSONL. Suggest optional validator in tests; document schema.
+Done (test-side): tests/test_trajectory_schema.py asserts metadata/iteration keys. Optional production validator = approval.
 
 ## Log rotation
 
-RLMLogger per instance; multi-process/session behavior. Document; rotation = approval.
+Done: RLMLogger accepts optional `max_file_bytes` for rotation. Document: observability_gaps.md reference.
 
 ## Provider metrics
 
@@ -25,3 +25,12 @@ Usage in usage_summary; no aggregate dashboard. Optional export script from JSON
 ## MCP tool logging
 
 Gateway logs tool_call; no structured metrics. Optional metrics export; approval for new metrics.
+
+## Quality pipeline observability
+
+The orchestrator prompt pipeline now tracks convergence explicitly:
+- Debug agent session summaries include item counts (fixed, blocked, remaining, newly added)
+- `Convergence` field in session summaries flags whether the backlog is shrinking, stable, or growing
+- Exposure tracking adds newly discovered issues as backlog items rather than silently dropping them
+- Run log entries include tool output summaries, not just pass/fail
+- These improvements address the recall bottleneck where plan misses → agent never fixes

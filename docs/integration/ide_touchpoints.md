@@ -26,7 +26,9 @@ Map of where the repo interfaces with VS Code and Cursor expectations.
 
 - **Config**: `.cursor/mcp.json` — key `mcpServers.rlm-gateway` (or `mcp.servers` in some schemas) with `command`, `args`, `cwd`, `env`. Typical: `uv run python scripts/rlm_mcp_gateway.py` with `PYTHONPATH=${workspaceFolder}`.
 - **Server mode**: Stdio (default). HTTP: `--mode http --repo-path ... --api-key ...` (optional; requires FastAPI/uvicorn and API key).
-- **Tool names**: `rlm.session.create`, `rlm.session.close`, `rlm.roots.set`, `rlm.fs.list`, `rlm.fs.manifest`, `rlm.fs.handle.create`, `rlm.span.read`, `rlm.chunk.create`, `rlm.chunk.get`, `rlm.search.query`, `rlm.search.regex`, `rlm.exec.run`, `rlm.complete`, `rlm.provenance.report`.
+- **Tool names**: `rlm_session_create`, `rlm_session_close`, `rlm_roots_set`, `rlm_fs_list`, `rlm_fs_manifest`, `rlm_fs_handle_create`, `rlm_span_read`, `rlm_chunk_create`, `rlm_chunk_get`, `rlm_search_query`, `rlm_search_regex`, `rlm_exec_run`, `rlm_complete`, `rlm_provenance_report`.
+- **Compatibility**: Legacy dotted names remain accepted by server dispatch for backward compatibility.
+- **Sampling bridge**: HTTP mode now supports `sampling/createMessage` and applies `modelPreferences`/`model_preferences` routing through gateway model preference selection.
 - **No Chat Participant**: Extension does not register the chat participant when running in Cursor (platform detection in `platform.ts`); Cursor uses MCP tools only.
 
 ### Rules / playbooks
