@@ -1,7 +1,38 @@
+import dataclasses
 from abc import ABC, abstractmethod
 from typing import Any, Protocol, runtime_checkable
 
 from rlm.core.types import REPLResult
+
+
+def config_from_kwargs(
+    config_cls: type,
+    kwargs: dict[str, Any],
+) -> tuple[Any, dict[str, Any]]:
+    """Split a flat kwargs dict into (config_instance, remaining_kwargs).
+
+    Fields recognized by *config_cls* are extracted; everything else
+    is returned in the second element so callers can forward it to
+    ``super().__init__(**remaining)``.
+    """
+    field_names = {f.name for f in dataclasses.fields(config_cls)}
+    config_kwargs = {k: v for k, v in kwargs.items() if k in field_names}
+    extra = {k: v for k, v in kwargs.items() if k not in field_names}
+    return config_cls(**config_kwargs), extra
+
+
+# Names that REPL code must never permanently overwrite.
+# After each execution the environment restores these from backup copies.
+RESERVED_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "context",
+        "history",
+        "llm_query",
+        "llm_query_batched",
+        "FINAL_VAR",
+        "SHOW_VARS",
+    }
+)
 
 
 class BaseEnv(ABC):
@@ -10,22 +41,28 @@ class BaseEnv(ABC):
     where isolated environments are on a separate machine from the LM.
     """
 
-    def __init__(self, persistent: bool = False, depth: int = 1, **kwargs):
+    def __init__(self, persistent: bool = False, depth: int = 1, **kwargs: Any) -> None:
         self.persistent = persistent
         self.depth = depth
         self.kwargs = kwargs
 
     @abstractmethod
-    def setup(self):
+    def setup(self) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def load_context(self, context_payload: dict | list | str):
+    def load_context(self, context_payload: dict[str, Any] | list[Any] | str) -> None:
         raise NotImplementedError
 
     @abstractmethod
     def execute_code(self, code: str) -> REPLResult:
         raise NotImplementedError
+
+    def append_compaction_entry(self, entry: list[dict[str, Any]] | dict[str, Any]) -> None:
+        _ = entry
+
+    def cleanup(self) -> None:
+        return
 
 
 class IsolatedEnv(BaseEnv, ABC):
@@ -34,15 +71,15 @@ class IsolatedEnv(BaseEnv, ABC):
     guaranteeing complete isolation from the LM process.
     """
 
-    def __init__(self, persistent: bool = False, **kwargs):
+    def __init__(self, persistent: bool = False, **kwargs: Any) -> None:
         super().__init__(persistent=persistent, **kwargs)
 
     @abstractmethod
-    def setup(self):
+    def setup(self) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def load_context(self, context_payload: dict | list | str):
+    def load_context(self, context_payload: dict[str, Any] | list[Any] | str) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -57,15 +94,15 @@ class NonIsolatedEnv(BaseEnv, ABC):
     as a subprocess.
     """
 
-    def __init__(self, persistent: bool = False, **kwargs):
+    def __init__(self, persistent: bool = False, **kwargs: Any) -> None:
         super().__init__(persistent=persistent, **kwargs)
 
     @abstractmethod
-    def setup(self):
+    def setup(self) -> None:
         raise NotImplementedError
 
     @abstractmethod
-    def load_context(self, context_payload: dict | list | str):
+    def load_context(self, context_payload: dict[str, Any] | list[Any] | str) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -118,7 +155,9 @@ class SupportsPersistence(Protocol):
         ...
 
     def add_context(
-        self, context_payload: dict | list | str, context_index: int | None = None
+        self,
+        context_payload: dict[str, Any] | list[Any] | str,
+        context_index: int | None = None,
     ) -> int:
         """Add a context payload, making it available as context_N in code.
 
@@ -179,4 +218,12 @@ class SupportsPersistence(Protocol):
         Used by RLM to inform the model how many conversation histories
         are available.
         """
+        ...
+
+    def append_compaction_entry(self, entry: list[dict[str, Any]] | dict[str, Any]) -> None:
+        """Append compaction output to environment-managed history state."""
+        ...
+
+    def cleanup(self) -> None:
+        """Release environment resources."""
         ...

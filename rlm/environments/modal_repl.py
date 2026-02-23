@@ -1,23 +1,69 @@
 import base64
+import importlib
 import json
 import textwrap
 import threading
 import time
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any, cast
 
-import modal
 import requests
+
+try:
+    modal = importlib.import_module("modal")
+except ImportError:
+    modal = cast(Any, object)
 
 from rlm.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
 from rlm.core.types import REPLResult, RLMChatCompletion
 from rlm.environments.base_env import IsolatedEnv
 from rlm.environments.constants import APT_PACKAGES, PIP_PACKAGES
+from rlm.environments.exec_script_templates import MODAL_EXEC_SCRIPT_TEMPLATE, render_exec_script
+
+
+@dataclass
+class ModalREPLConfig:
+    """Configuration for Modal sandbox environment."""
+
+    app_name: str = "rlm-sandbox"
+    image: Any | None = None
+    timeout: int = 600
+    lm_handler_address: tuple[str, int] | None = None
+    context_payload: dict[str, Any] | list[Any] | str | None = None
+    setup_code: str | None = None
+    persistent: bool = False
+    depth: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "app_name": self.app_name,
+            "image": repr(self.image) if self.image is not None else None,
+            "timeout": self.timeout,
+            "lm_handler_address": list(self.lm_handler_address)
+            if self.lm_handler_address is not None
+            else None,
+            "context_payload": self.context_payload,
+            "setup_code": self.setup_code,
+            "persistent": self.persistent,
+            "depth": self.depth,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ModalREPLConfig":
+        addr = data.get("lm_handler_address")
+        kwargs: dict[str, Any] = {k: v for k, v in data.items() if k != "lm_handler_address"}
+        if addr is not None:
+            kwargs["lm_handler_address"] = (str(addr[0]), int(addr[1]))
+        return cls(**kwargs)
+
 
 # =============================================================================
 # Default Modal Image
 # =============================================================================
 
 
-def get_default_image() -> modal.Image:
+def get_default_image() -> Any:
     """
     Build a default Modal image with common libraries for data science,
     math, and general Python work.
@@ -119,157 +165,13 @@ def _build_exec_script(code: str, broker_port: int = 8080, depth: int = 1) -> st
     """
     code_b64 = base64.b64encode(code.encode()).decode()
 
-    return textwrap.dedent(
-        f'''
-import sys
-import io
-import json
-import base64
-import traceback
-import os
-import requests
-
-try:
-    import dill
-except ImportError:
-    import pickle as dill
-
-# =============================================================================
-# LLM Query Functions (via local broker)
-# =============================================================================
-
-BROKER_URL = "http://127.0.0.1:{broker_port}"
-
-def llm_query(prompt, model=None):
-    """Query the LM via the broker."""
-    try:
-        response = requests.post(
-            f"{{BROKER_URL}}/enqueue",
-            json={{"type": "single", "prompt": prompt, "model": model, "depth": {depth}}},
-            timeout=300,
-        )
-        data = response.json()
-        if data.get("error"):
-            return f"Error: {{data['error']}}"
-        return data.get("response", "Error: No response")
-    except Exception as e:
-        return f"Error: LM query failed - {{e}}"
-
-
-def llm_query_batched(prompts, model=None):
-    """Query the LM with multiple prompts."""
-    try:
-        response = requests.post(
-            f"{{BROKER_URL}}/enqueue",
-            json={{"type": "batched", "prompts": prompts, "model": model, "depth": {depth}}},
-            timeout=300,
-        )
-        data = response.json()
-        if data.get("error"):
-            return [f"Error: {{data['error']}}"] * len(prompts)
-        return data.get("responses", ["Error: No response"] * len(prompts))
-    except Exception as e:
-        return [f"Error: LM query failed - {{e}}"] * len(prompts)
-
-
-# =============================================================================
-# State Management
-# =============================================================================
-
-STATE_FILE = "/tmp/rlm_state.dill"
-
-def load_state():
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "rb") as f:
-                return dill.load(f)
-        except:
-            pass
-    return {{}}
-
-def save_state(state):
-    clean_state = {{}}
-    for k, v in state.items():
-        if k.startswith("_"):
-            continue
-        try:
-            dill.dumps(v)
-            clean_state[k] = v
-        except:
-            pass
-    with open(STATE_FILE, "wb") as f:
-        dill.dump(clean_state, f)
-
-def serialize_locals(state):
-    result = {{}}
-    for k, v in state.items():
-        if k.startswith("_"):
-            continue
-        try:
-            result[k] = repr(v)
-        except:
-            result[k] = f"<{{type(v).__name__}}>"
-    return result
-
-# =============================================================================
-# Execution
-# =============================================================================
-
-_locals = load_state()
-
-def FINAL_VAR(variable_name):
-    variable_name = variable_name.strip().strip("\\"\\'")
-    if variable_name in _locals:
-        return str(_locals[variable_name])
-    available = [k for k in _locals.keys() if not k.startswith("_")]
-    if available:
-        return f"Error: Variable '{{variable_name}}' not found. Available variables: {{available}}. You must create and assign a variable BEFORE calling FINAL_VAR on it."
-    return f"Error: Variable '{{variable_name}}' not found. No variables have been created yet. You must create and assign a variable in a REPL block BEFORE calling FINAL_VAR on it."
-
-def SHOW_VARS():
-    available = {{k: type(v).__name__ for k, v in _locals.items() if not k.startswith("_")}}
-    if not available:
-        return "No variables created yet. Use ```repl``` blocks to create variables."
-    return f"Available variables: {{available}}"
-
-_globals = {{
-    "__builtins__": __builtins__,
-    "__name__": "__main__",
-    "llm_query": llm_query,
-    "llm_query_batched": llm_query_batched,
-    "FINAL_VAR": FINAL_VAR,
-    "SHOW_VARS": SHOW_VARS,
-}}
-
-code = base64.b64decode("{code_b64}").decode()
-
-stdout_buf = io.StringIO()
-stderr_buf = io.StringIO()
-old_stdout, old_stderr = sys.stdout, sys.stderr
-
-try:
-    sys.stdout = stdout_buf
-    sys.stderr = stderr_buf
-    combined = {{**_globals, **_locals}}
-    exec(code, combined, combined)
-    for key, value in combined.items():
-        if key not in _globals and not key.startswith("_"):
-            _locals[key] = value
-except Exception as e:
-    traceback.print_exc(file=stderr_buf)
-finally:
-    sys.stdout = old_stdout
-    sys.stderr = old_stderr
-
-save_state(_locals)
-
-result = {{
-    "stdout": stdout_buf.getvalue(),
-    "stderr": stderr_buf.getvalue(),
-    "locals": serialize_locals(_locals),
-}}
-print(json.dumps(result))
-'''
+    return render_exec_script(
+        MODAL_EXEC_SCRIPT_TEMPLATE,
+        {
+            "__BROKER_PORT__": str(broker_port),
+            "__DEPTH__": str(depth),
+            "__CODE_B64__": code_b64,
+        },
     )
 
 
@@ -287,27 +189,20 @@ class ModalREPL(IsolatedEnv):
 
     def __init__(
         self,
-        app_name: str = "rlm-sandbox",
-        image: modal.Image | None = None,
-        timeout: int = 600,
-        lm_handler_address: tuple[str, int] | None = None,
-        context_payload: dict | list | str | None = None,
-        setup_code: str | None = None,
-        persistent: bool = False,
-        depth: int = 1,
-        **kwargs,
-    ):
-        if persistent:
+        config: ModalREPLConfig,
+        **kwargs: Any,
+    ) -> None:
+        if config.persistent:
             raise NotImplementedError(
                 "Persistent REPLs are currently not supported for environment: ModalREPL"
             )
-        super().__init__(persistent=persistent, depth=depth, **kwargs)
+        super().__init__(persistent=config.persistent, depth=config.depth, **kwargs)
 
-        self.app_name = app_name
-        self.timeout = timeout
-        self.lm_handler_address = lm_handler_address
+        self.app_name = config.app_name
+        self.timeout = config.timeout
+        self.lm_handler_address = config.lm_handler_address
 
-        self.image = image or get_default_image()
+        self.image = config.image or get_default_image()
 
         self.app = None
         self.sandbox = None
@@ -320,13 +215,13 @@ class ModalREPL(IsolatedEnv):
 
         self.setup()
 
-        if context_payload is not None:
-            self.load_context(context_payload)
+        if config.context_payload is not None:
+            self.load_context(config.context_payload)
 
-        if setup_code:
-            self.execute_code(setup_code)
+        if config.setup_code:
+            self.execute_code(config.setup_code)
 
-    def setup(self):
+    def setup(self) -> None:
         """Create the Modal app, sandbox, broker, and start polling."""
         self.app = modal.App.lookup(self.app_name, create_if_missing=True)
 
@@ -359,30 +254,15 @@ class ModalREPL(IsolatedEnv):
             self.poller_thread = threading.Thread(target=self._poll_broker, daemon=True)
             self.poller_thread.start()
 
-    def _poll_broker(self):
+    def _poll_broker(self) -> None:
         """Poll the broker for pending LLM requests and handle them."""
         while not self.poller_stop.is_set():
+            if self.broker_url is None:
+                time.sleep(0.1)
+                continue
             try:
-                # Get pending requests
-                resp = requests.get(
-                    f"{self.broker_url}/pending",
-                    timeout=5,
-                )
-                pending = resp.json().get("pending", [])
-
-                for item in pending:
-                    request_id = item["id"]
-                    req_data = item["request"]
-
-                    # Handle the request
-                    response = self._handle_llm_request(req_data)
-
-                    # Send response back
-                    requests.post(
-                        f"{self.broker_url}/respond",
-                        json={"id": request_id, "response": response},
-                        timeout=10,
-                    )
+                pending = self._fetch_pending_requests()
+                self._forward_pending_requests(pending)
 
             except requests.exceptions.RequestException:
                 pass
@@ -391,45 +271,108 @@ class ModalREPL(IsolatedEnv):
 
             time.sleep(0.1)
 
-    def _handle_llm_request(self, req_data: dict) -> dict:
-        """Handle an LLM request from the sandbox."""
-        req_type = req_data.get("type")
-        model = req_data.get("model")
+    def _fetch_pending_requests(self) -> list[dict[str, Any]]:
+        if self.broker_url is None:
+            return []
+        resp = requests.get(f"{self.broker_url}/pending", timeout=5)
+        pending_raw = resp.json().get("pending", [])
+        if not isinstance(pending_raw, list):
+            return []
+        pending_list = cast(list[Any], pending_raw)
+        return [cast(dict[str, Any], item) for item in pending_list if isinstance(item, dict)]
 
-        if req_type == "single":
-            prompt = req_data.get("prompt")
-            request = LMRequest(prompt=prompt, model=model, depth=self.depth)
-            response = send_lm_request(self.lm_handler_address, request)
-
-            if not response.success:
-                return {"error": response.error}
-
-            # Track the call
-            with self._calls_lock:
-                self.pending_llm_calls.append(response.chat_completion)
-
-            return {"response": response.chat_completion.response}
-
-        elif req_type == "batched":
-            prompts = req_data.get("prompts", [])
-            responses = send_lm_request_batched(
-                self.lm_handler_address, prompts, model=model, depth=self.depth
+    def _forward_pending_requests(self, pending: list[dict[str, Any]]) -> None:
+        for item in pending:
+            request_id = str(item.get("id", ""))
+            req_data = item["request"]
+            if not isinstance(req_data, dict):
+                continue
+            response = self._handle_llm_request(cast(dict[str, Any], req_data))
+            if self.broker_url is None:
+                continue
+            requests.post(
+                f"{self.broker_url}/respond",
+                json={"id": request_id, "response": response},
+                timeout=10,
             )
 
-            results = []
-            for resp in responses:
-                if not resp.success:
-                    results.append(f"Error: {resp.error}")
-                else:
-                    with self._calls_lock:
-                        self.pending_llm_calls.append(resp.chat_completion)
-                    results.append(resp.chat_completion.response)
+    def _handle_single_llm_request(
+        self,
+        req_data: dict[str, Any],
+        model: str | None,
+    ) -> dict[str, Any]:
+        if self.lm_handler_address is None:
+            return {"error": "LM handler is not configured"}
 
-            return {"responses": results}
+        prompt_raw = req_data.get("prompt")
+        prompt: str | list[dict[str, Any]]
+        if isinstance(prompt_raw, str):
+            prompt = prompt_raw
+        elif isinstance(prompt_raw, list):
+            prompt = cast(list[dict[str, Any]], prompt_raw)
+        else:
+            return {"error": "Invalid single prompt payload"}
+
+        request = LMRequest(prompt=prompt, model=model, depth=self.depth)
+        response = send_lm_request(self.lm_handler_address, request)
+        if not response.success:
+            return {"error": response.error}
+        if response.chat_completion is None:
+            return {"error": "No chat completion returned"}
+
+        with self._calls_lock:
+            self.pending_llm_calls.append(response.chat_completion)
+        return {"response": response.chat_completion.response}
+
+    def _handle_batched_llm_request(
+        self,
+        req_data: dict[str, Any],
+        model: str | None,
+    ) -> dict[str, Any]:
+        if self.lm_handler_address is None:
+            return {"error": "LM handler is not configured"}
+
+        prompts_raw = req_data.get("prompts", [])
+        if not isinstance(prompts_raw, list):
+            return {"error": "Invalid batched prompts payload"}
+        prompts = cast(list[str | list[dict[str, Any]]], prompts_raw)
+        responses = send_lm_request_batched(
+            self.lm_handler_address, prompts, model=model, depth=self.depth
+        )
+        return {"responses": self._handle_batched(responses)}
+
+    def _handle_llm_request(self, req_data: dict[str, Any]) -> dict[str, Any]:
+        """Handle an LLM request from the sandbox."""
+        req_type = req_data.get("type")
+        model_raw = req_data.get("model")
+        model = model_raw if isinstance(model_raw, str) else None
+
+        if req_type == "single":
+            return self._handle_single_llm_request(req_data, model)
+
+        if req_type == "batched":
+            return self._handle_batched_llm_request(req_data, model)
 
         return {"error": "Unknown request type"}
 
-    def load_context(self, context_payload: dict | list | str):
+    def _handle_batched(self, responses: list[Any]) -> list[str]:
+        results: list[str] = []
+        for response in responses:
+            if not response.success:
+                results.append(f"Error: {response.error}")
+                continue
+
+            if response.chat_completion is None:
+                results.append("Error: No chat completion returned")
+                continue
+
+            with self._calls_lock:
+                self.pending_llm_calls.append(response.chat_completion)
+            results.append(response.chat_completion.response)
+
+        return results
+
+    def load_context(self, context_payload: dict[str, Any] | list[Any] | str) -> None:
         """Load context into the sandbox environment."""
         if isinstance(context_payload, str):
             escaped = context_payload.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
@@ -441,9 +384,31 @@ class ModalREPL(IsolatedEnv):
 
         self.execute_code(context_code)
 
+    def _parse_execution_payload(self, stdout: str) -> tuple[str, str, dict[str, Any]] | None:
+        lines = stdout.strip().split("\n")
+        result_json = lines[-1] if lines else "{}"
+        try:
+            result_raw = json.loads(result_json)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(result_raw, dict):
+            return None
+
+        result = cast(dict[str, Any], result_raw)
+        stdout_value = str(result.get("stdout", ""))
+        stderr_value = str(result.get("stderr", ""))
+        locals_value = result.get("locals", {})
+        normalized_locals = (
+            cast(dict[str, Any], locals_value) if isinstance(locals_value, dict) else {}
+        )
+        return stdout_value, stderr_value, normalized_locals
+
     def execute_code(self, code: str) -> REPLResult:
         """Execute code in the Modal sandbox and return result."""
         start_time = time.perf_counter()
+
+        if self.sandbox is None:
+            raise RuntimeError("Modal sandbox is not initialized")
 
         # Clear pending LLM calls
         with self._calls_lock:
@@ -464,20 +429,8 @@ class ModalREPL(IsolatedEnv):
 
         execution_time = time.perf_counter() - start_time
 
-        # Parse the JSON result
-        try:
-            lines = stdout.strip().split("\n")
-            result_json = lines[-1] if lines else "{}"
-            result = json.loads(result_json)
-
-            return REPLResult(
-                stdout=result.get("stdout", ""),
-                stderr=result.get("stderr", "") + stderr,
-                locals=result.get("locals", {}),
-                execution_time=execution_time,
-                rlm_calls=pending_calls,
-            )
-        except json.JSONDecodeError:
+        parsed_payload = self._parse_execution_payload(stdout)
+        if parsed_payload is None:
             return REPLResult(
                 stdout=stdout,
                 stderr=stderr or "Failed to parse execution result",
@@ -486,7 +439,16 @@ class ModalREPL(IsolatedEnv):
                 rlm_calls=pending_calls,
             )
 
-    def cleanup(self):
+        stdout_value, stderr_value, normalized_locals = parsed_payload
+        return REPLResult(
+            stdout=stdout_value,
+            stderr=stderr_value + stderr,
+            locals=normalized_locals,
+            execution_time=execution_time,
+            rlm_calls=pending_calls,
+        )
+
+    def cleanup(self) -> None:
         """Terminate the sandbox and stop polling."""
         # Stop the poller thread
         if self.poller_thread is not None:
@@ -501,10 +463,16 @@ class ModalREPL(IsolatedEnv):
                 pass
             self.sandbox = None
 
-    def __enter__(self):
+    def __enter__(self) -> "ModalREPL":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
+        _ = exc_type, exc_val, exc_tb
         self.cleanup()
         return False
 

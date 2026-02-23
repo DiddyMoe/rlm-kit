@@ -6,20 +6,29 @@ Follows the same HTTP broker pattern as ModalREPL for LLM communication.
 """
 
 import base64
+import importlib
 import json
 import textwrap
 import threading
 import time
-from typing import Any
+from dataclasses import dataclass
+from types import TracebackType
+from typing import Any, cast
 
 import requests
 from dotenv import load_dotenv
-from prime_sandboxes import (
-    APIClient,
-    BackgroundJob,
-    CreateSandboxRequest,
-    SandboxClient,
-)
+
+try:
+    prime_sandboxes = importlib.import_module("prime_sandboxes")
+    APIClient = prime_sandboxes.APIClient
+    BackgroundJob = prime_sandboxes.BackgroundJob
+    CreateSandboxRequest = prime_sandboxes.CreateSandboxRequest
+    SandboxClient = prime_sandboxes.SandboxClient
+except ImportError:
+    APIClient = object
+    BackgroundJob = object
+    CreateSandboxRequest = object
+    SandboxClient = object
 
 from rlm.core.comms_utils import LMRequest, send_lm_request, send_lm_request_batched
 from rlm.core.types import REPLResult, RLMChatCompletion
@@ -27,6 +36,45 @@ from rlm.environments.base_env import IsolatedEnv
 from rlm.environments.constants import APT_PACKAGES, PIP_PACKAGES
 
 load_dotenv()
+
+
+@dataclass
+class PrimeREPLConfig:
+    """Configuration for Prime Intellect sandbox environment."""
+
+    name: str = "rlm-sandbox"
+    docker_image: str = "python:3.11-slim"
+    timeout_minutes: int = 60
+    lm_handler_address: tuple[str, int] | None = None
+    context_payload: dict[str, Any] | list[Any] | str | None = None
+    setup_code: str | None = None
+    network_access: bool = True
+    persistent: bool = False
+    depth: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "docker_image": self.docker_image,
+            "timeout_minutes": self.timeout_minutes,
+            "lm_handler_address": list(self.lm_handler_address)
+            if self.lm_handler_address is not None
+            else None,
+            "context_payload": self.context_payload,
+            "setup_code": self.setup_code,
+            "network_access": self.network_access,
+            "persistent": self.persistent,
+            "depth": self.depth,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PrimeREPLConfig":
+        addr = data.get("lm_handler_address")
+        kwargs: dict[str, Any] = {k: v for k, v in data.items() if k != "lm_handler_address"}
+        if addr is not None:
+            kwargs["lm_handler_address"] = (str(addr[0]), int(addr[1]))
+        return cls(**kwargs)
+
 
 # =============================================================================
 # Broker Server Script (runs inside sandbox, handles LLM request queue)
@@ -228,7 +276,7 @@ def FINAL_VAR(variable_name):
 def SHOW_VARS():
     available = {{k: type(v).__name__ for k, v in _locals.items() if not k.startswith("_")}}
     if not available:
-        return "No variables created yet. Use ```repl``` blocks to create variables."
+        return "No variables created yet. Use ```repl``` blocks to create variables. When you have your final answer, assign it to a variable and return it with FINAL_VAR('variable_name')."
     return f"Available variables: {{available}}"
 
 _globals = {{
@@ -286,34 +334,26 @@ class PrimeREPL(IsolatedEnv):
 
     def __init__(
         self,
-        name: str = "rlm-sandbox",
-        docker_image: str = "python:3.11-slim",
-        timeout_minutes: int = 60,
-        lm_handler_address: tuple[str, int] | None = None,
-        context_payload: dict | list | str | None = None,
-        setup_code: str | None = None,
-        network_access: bool = True,
-        persistent: bool = False,
-        depth: int = 1,
+        config: PrimeREPLConfig,
         **kwargs: Any,
-    ):
-        super().__init__(persistent=persistent, depth=depth, **kwargs)
+    ) -> None:
+        super().__init__(persistent=config.persistent, depth=config.depth, **kwargs)
 
-        if persistent:
+        if config.persistent:
             raise NotImplementedError(
                 "Persistent REPLs are currently not supported for environment: PrimeREPL"
             )
 
-        self.name = name
-        self.docker_image = docker_image
-        self.timeout_minutes = timeout_minutes
-        self.lm_handler_address = lm_handler_address
-        self.network_access = network_access
+        self.name = config.name
+        self.docker_image = config.docker_image
+        self.timeout_minutes = config.timeout_minutes
+        self.lm_handler_address = config.lm_handler_address
+        self.network_access = config.network_access
 
         # Client and sandbox state
-        self.client: SandboxClient | None = None
+        self.client: Any | None = None
         self.sandbox_id: str | None = None
-        self.broker_job: BackgroundJob | None = None
+        self.broker_job: Any | None = None
         self.broker_url: str | None = None
         self.broker_exposure_id: str | None = None
 
@@ -325,37 +365,44 @@ class PrimeREPL(IsolatedEnv):
 
         self.setup()
 
-        if context_payload is not None:
-            self.load_context(context_payload)
+        if config.context_payload is not None:
+            self.load_context(config.context_payload)
 
-        if setup_code:
-            self.execute_code(setup_code)
+        if config.setup_code:
+            self.execute_code(config.setup_code)
 
-    def setup(self):
+    def setup(self) -> None:
         """Create the Prime sandbox, broker, and start polling."""
         # Create the client
-        self.client = SandboxClient(APIClient())
+        sandbox_client_cls = cast(Any, SandboxClient)
+        api_client_cls = cast(Any, APIClient)
+        self.client = sandbox_client_cls(api_client_cls())
+        if self.client is None:
+            raise RuntimeError("Failed to initialize Prime sandbox client")
+        client = self.client
 
         # Create the sandbox
-        request = CreateSandboxRequest(
+        create_sandbox_request_cls = cast(Any, CreateSandboxRequest)
+        request = create_sandbox_request_cls(
             name=self.name,
             docker_image=self.docker_image,
             timeout_minutes=self.timeout_minutes,
             network_access=self.network_access,
         )
-        sandbox = self.client.create(request)
-        self.sandbox_id = sandbox.id
+        sandbox = client.create(request)
+        self.sandbox_id = str(sandbox.id)
+        sandbox_id = self.sandbox_id
 
         # Wait for sandbox to be ready
-        self.client.wait_for_creation(self.sandbox_id, max_attempts=self.timeout_minutes * 60)
+        client.wait_for_creation(sandbox_id, max_attempts=self.timeout_minutes * 60)
 
         # Install apt dependencies
         apt_cmd = "apt-get update && apt-get install -y " + " ".join(APT_PACKAGES)
-        self.client.execute_command(self.sandbox_id, apt_cmd)
+        client.execute_command(sandbox_id, apt_cmd)
 
         # Install pip dependencies
         pip_cmd = "pip install " + " ".join(f'"{pkg}"' for pkg in PIP_PACKAGES)
-        self.client.execute_command(self.sandbox_id, pip_cmd)
+        client.execute_command(sandbox_id, pip_cmd)
 
         # Write the broker script to the sandbox.
         # Unlike Modal's sandbox.exec() which accepts separate args, Prime's
@@ -363,14 +410,14 @@ class PrimeREPL(IsolatedEnv):
         # to avoid shell escaping issues with quotes/special chars in the script.
         broker_script = _BROKER_SCRIPT.format(broker_port=self.BROKER_PORT)
         broker_script_b64 = base64.b64encode(broker_script.encode()).decode()
-        self.client.execute_command(
-            self.sandbox_id,
+        client.execute_command(
+            sandbox_id,
             f"echo '{broker_script_b64}' | base64 -d > /tmp/broker.py",
         )
 
         # Start the broker as a background job
-        self.broker_job = self.client.start_background_job(
-            self.sandbox_id,
+        self.broker_job = client.start_background_job(
+            sandbox_id,
             "python /tmp/broker.py",
         )
 
@@ -378,7 +425,7 @@ class PrimeREPL(IsolatedEnv):
         self._wait_for_broker()
 
         # Expose the broker port
-        exposed = self.client.expose(self.sandbox_id, port=self.BROKER_PORT, name="rlm-broker")
+        exposed = client.expose(sandbox_id, port=self.BROKER_PORT, name="rlm-broker")
         self.broker_url = exposed.url
         self.broker_exposure_id = exposed.exposure_id
 
@@ -388,68 +435,64 @@ class PrimeREPL(IsolatedEnv):
             self.poller_thread = threading.Thread(target=self._poll_broker, daemon=True)
             self.poller_thread.start()
 
-    def _wait_for_broker(self, max_attempts: int = 30):
+    def _wait_for_broker(self, max_attempts: int = 30) -> None:
         """Wait for the broker to be ready by checking health endpoint."""
-        # Use Python to check health (curl may not be installed in slim images)
-        health_check_cmd = (
+        if self.client is None or self.sandbox_id is None:
+            raise RuntimeError("Prime client or sandbox is not initialized")
+        client = self.client
+        sandbox_id = self.sandbox_id
+
+        health_check_cmd = self._broker_health_check_command()
+
+        for _ in range(max_attempts):
+            time.sleep(1)
+            try:
+                result = client.execute_command(
+                    sandbox_id,
+                    health_check_cmd,
+                )
+                stdout = str(getattr(result, "stdout", "") or "")
+                if "ok" in stdout.lower():
+                    return
+            except Exception:
+                pass
+
+        raise RuntimeError(self._broker_failure_details(sandbox_id))
+
+    def _broker_health_check_command(self) -> str:
+        return (
             f'python -c "import requests; '
             f"r = requests.get('http://127.0.0.1:{self.BROKER_PORT}/health', timeout=2); "
             f'print(r.text)"'
         )
 
-        for _ in range(max_attempts):
-            time.sleep(1)
-            try:
-                result = self.client.execute_command(
-                    self.sandbox_id,
-                    health_check_cmd,
-                )
-                if "ok" in result.stdout.lower():
-                    return
-            except Exception:
-                pass
-
-        # Get broker logs for debugging by reading log files directly
+    def _broker_failure_details(self, sandbox_id: str) -> str:
         error_info = "Broker failed to start."
-        if self.broker_job:
-            try:
-                stdout_result = self.client.execute_command(
-                    self.sandbox_id,
-                    f"cat {self.broker_job.stdout_log_file} 2>/dev/null || echo 'No stdout log'",
-                )
-                stderr_result = self.client.execute_command(
-                    self.sandbox_id,
-                    f"cat {self.broker_job.stderr_log_file} 2>/dev/null || echo 'No stderr log'",
-                )
-                error_info += f"\nstdout: {stdout_result.stdout}\nstderr: {stderr_result.stdout}"
-            except Exception as e:
-                error_info += f"\nFailed to read logs: {e}"
-        raise RuntimeError(error_info)
+        if self.client is None or self.broker_job is None:
+            return error_info
 
-    def _poll_broker(self):
+        try:
+            stdout_result = self.client.execute_command(
+                sandbox_id,
+                f"cat {self.broker_job.stdout_log_file} 2>/dev/null || echo 'No stdout log'",
+            )
+            stderr_result = self.client.execute_command(
+                sandbox_id,
+                f"cat {self.broker_job.stderr_log_file} 2>/dev/null || echo 'No stderr log'",
+            )
+            return error_info + f"\nstdout: {stdout_result.stdout}\nstderr: {stderr_result.stdout}"
+        except Exception as e:
+            return error_info + f"\nFailed to read logs: {e}"
+
+    def _poll_broker(self) -> None:
         """Poll the broker for pending LLM requests and handle them."""
         while not self.poller_stop.is_set():
+            if self.broker_url is None:
+                time.sleep(0.1)
+                continue
             try:
-                # Get pending requests
-                resp = requests.get(
-                    f"{self.broker_url}/pending",
-                    timeout=10,
-                )
-                pending = resp.json().get("pending", [])
-
-                for item in pending:
-                    request_id = item["id"]
-                    req_data = item["request"]
-
-                    # Handle the request
-                    response = self._handle_llm_request(req_data)
-
-                    # Send response back
-                    requests.post(
-                        f"{self.broker_url}/respond",
-                        json={"id": request_id, "response": response},
-                        timeout=10,
-                    )
+                pending = self._fetch_pending_requests()
+                self._forward_pending_requests(pending)
 
             except requests.exceptions.RequestException:
                 pass
@@ -458,45 +501,100 @@ class PrimeREPL(IsolatedEnv):
 
             time.sleep(0.1)
 
-    def _handle_llm_request(self, req_data: dict) -> dict:
-        """Handle an LLM request from the sandbox."""
-        req_type = req_data.get("type")
-        model = req_data.get("model")
+    def _fetch_pending_requests(self) -> list[dict[str, Any]]:
+        if self.broker_url is None:
+            return []
+        resp = requests.get(f"{self.broker_url}/pending", timeout=10)
+        pending_raw = resp.json().get("pending", [])
+        if not isinstance(pending_raw, list):
+            return []
+        pending_list = cast(list[Any], pending_raw)
+        return [cast(dict[str, Any], item) for item in pending_list if isinstance(item, dict)]
 
-        if req_type == "single":
-            prompt = req_data.get("prompt")
-            request = LMRequest(prompt=prompt, model=model, depth=self.depth)
-            response = send_lm_request(self.lm_handler_address, request)
-
-            if not response.success:
-                return {"error": response.error}
-
-            # Track the call
-            with self._calls_lock:
-                self.pending_llm_calls.append(response.chat_completion)
-
-            return {"response": response.chat_completion.response}
-
-        elif req_type == "batched":
-            prompts = req_data.get("prompts", [])
-            responses = send_lm_request_batched(
-                self.lm_handler_address, prompts, model=model, depth=self.depth
+    def _forward_pending_requests(self, pending: list[dict[str, Any]]) -> None:
+        if self.broker_url is None:
+            return
+        for item in pending:
+            request_id = str(item.get("id", ""))
+            req_data = item.get("request")
+            if not isinstance(req_data, dict):
+                continue
+            response = self._handle_llm_request(cast(dict[str, Any], req_data))
+            requests.post(
+                f"{self.broker_url}/respond",
+                json={"id": request_id, "response": response},
+                timeout=10,
             )
 
-            results = []
-            for resp in responses:
-                if not resp.success:
-                    results.append(f"Error: {resp.error}")
-                else:
-                    with self._calls_lock:
-                        self.pending_llm_calls.append(resp.chat_completion)
-                    results.append(resp.chat_completion.response)
+    def _handle_llm_request(self, req_data: dict[str, Any]) -> dict[str, Any]:
+        """Handle an LLM request from the sandbox."""
+        if self.lm_handler_address is None:
+            return {"error": "LM handler is not configured"}
 
-            return {"responses": results}
+        req_type = req_data.get("type")
+        model_raw = req_data.get("model")
+        model = model_raw if isinstance(model_raw, str) else None
+
+        if req_type == "single":
+            return self._handle_single_llm_request(req_data=req_data, model=model)
+
+        if req_type == "batched":
+            return self._handle_batched_llm_request(req_data=req_data, model=model)
 
         return {"error": "Unknown request type"}
 
-    def load_context(self, context_payload: dict | list | str):
+    def _handle_single_llm_request(
+        self, req_data: dict[str, Any], model: str | None
+    ) -> dict[str, Any]:
+        if self.lm_handler_address is None:
+            return {"error": "LM handler is not configured"}
+        prompt_raw = req_data.get("prompt")
+        if isinstance(prompt_raw, str):
+            prompt: str | list[dict[str, Any]] = prompt_raw
+        elif isinstance(prompt_raw, list):
+            prompt = cast(list[dict[str, Any]], prompt_raw)
+        else:
+            return {"error": "Invalid single prompt payload"}
+
+        request = LMRequest(prompt=prompt, model=model, depth=self.depth)
+        response = send_lm_request(self.lm_handler_address, request)
+        if not response.success:
+            return {"error": response.error}
+        if response.chat_completion is None:
+            return {"error": "No chat completion returned"}
+
+        with self._calls_lock:
+            self.pending_llm_calls.append(response.chat_completion)
+        return {"response": response.chat_completion.response}
+
+    def _handle_batched_llm_request(
+        self, req_data: dict[str, Any], model: str | None
+    ) -> dict[str, Any]:
+        if self.lm_handler_address is None:
+            return {"error": "LM handler is not configured"}
+        prompts_raw = req_data.get("prompts", [])
+        if not isinstance(prompts_raw, list):
+            return {"error": "Invalid batched prompts payload"}
+        prompts = cast(list[str | list[dict[str, Any]]], prompts_raw)
+        responses = send_lm_request_batched(
+            self.lm_handler_address, prompts, model=model, depth=self.depth
+        )
+
+        results: list[str] = []
+        for response in responses:
+            if not response.success:
+                results.append(f"Error: {response.error}")
+                continue
+            if response.chat_completion is None:
+                results.append("Error: No chat completion returned")
+                continue
+            with self._calls_lock:
+                self.pending_llm_calls.append(response.chat_completion)
+            results.append(response.chat_completion.response)
+
+        return {"responses": results}
+
+    def load_context(self, context_payload: dict[str, Any] | list[Any] | str) -> None:
         """Load context into the sandbox environment."""
         if isinstance(context_payload, str):
             escaped = context_payload.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
@@ -508,9 +606,30 @@ class PrimeREPL(IsolatedEnv):
 
         self.execute_code(context_code)
 
+    def _parse_execution_payload(self, stdout: str) -> tuple[str, str, dict[str, Any]] | None:
+        lines = stdout.strip().split("\n")
+        result_json = lines[-1] if lines else "{}"
+        parsed_raw = json.loads(result_json)
+        if not isinstance(parsed_raw, dict):
+            return None
+
+        parsed = cast(dict[str, Any], parsed_raw)
+        stdout_value = str(parsed.get("stdout", ""))
+        stderr_value = str(parsed.get("stderr", ""))
+        locals_value = parsed.get("locals", {})
+        normalized_locals = (
+            cast(dict[str, Any], locals_value) if isinstance(locals_value, dict) else {}
+        )
+        return stdout_value, stderr_value, normalized_locals
+
     def execute_code(self, code: str) -> REPLResult:
         """Execute code in the Prime sandbox and return result."""
         start_time = time.perf_counter()
+
+        if self.client is None or self.sandbox_id is None:
+            raise RuntimeError("Prime client or sandbox is not initialized")
+        client = self.client
+        sandbox_id = self.sandbox_id
 
         # Clear pending LLM calls
         with self._calls_lock:
@@ -519,17 +638,15 @@ class PrimeREPL(IsolatedEnv):
         # Build and write the script
         script = _build_exec_script(code, self.BROKER_PORT, self.depth)
         script_b64 = base64.b64encode(script.encode()).decode()
-        self.client.execute_command(
-            self.sandbox_id,
+        client.execute_command(
+            sandbox_id,
             f"echo '{script_b64}' | base64 -d > /tmp/exec_script.py",
         )
 
         # Execute the script
-        result = self.client.execute_command(
-            self.sandbox_id, "python /tmp/exec_script.py", timeout=60 * 10
-        )
-        stdout = result.stdout
-        stderr = result.stderr
+        result = client.execute_command(sandbox_id, "python /tmp/exec_script.py", timeout=60 * 10)
+        stdout = str(getattr(result, "stdout", "") or "")
+        stderr = str(getattr(result, "stderr", "") or "")
 
         # Collect LLM calls made during this execution
         with self._calls_lock:
@@ -538,20 +655,8 @@ class PrimeREPL(IsolatedEnv):
 
         execution_time = time.perf_counter() - start_time
 
-        # Parse the JSON result
-        try:
-            lines = stdout.strip().split("\n")
-            result_json = lines[-1] if lines else "{}"
-            parsed = json.loads(result_json)
-
-            return REPLResult(
-                stdout=parsed.get("stdout", ""),
-                stderr=parsed.get("stderr", "") + stderr,
-                locals=parsed.get("locals", {}),
-                execution_time=execution_time,
-                rlm_calls=pending_calls,
-            )
-        except json.JSONDecodeError:
+        parsed_payload = self._parse_execution_payload(stdout)
+        if parsed_payload is None:
             return REPLResult(
                 stdout=stdout,
                 stderr=stderr or "Failed to parse execution result",
@@ -560,7 +665,16 @@ class PrimeREPL(IsolatedEnv):
                 rlm_calls=pending_calls,
             )
 
-    def cleanup(self):
+        stdout_value, stderr_value, normalized_locals = parsed_payload
+        return REPLResult(
+            stdout=stdout_value,
+            stderr=stderr_value + stderr,
+            locals=normalized_locals,
+            execution_time=execution_time,
+            rlm_calls=pending_calls,
+        )
+
+    def cleanup(self) -> None:
         """Terminate the sandbox and stop polling."""
         # Stop the poller thread
         if self.poller_thread is not None:
@@ -587,10 +701,16 @@ class PrimeREPL(IsolatedEnv):
 
         self.sandbox_id = None
 
-    def __enter__(self):
+    def __enter__(self) -> "PrimeREPL":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
+        _ = exc_type, exc_val, exc_tb
         self.cleanup()
         return False
 
