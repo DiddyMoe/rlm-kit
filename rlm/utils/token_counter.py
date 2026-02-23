@@ -51,9 +51,7 @@ def estimate_prompt_tokens(prompt: str | list[dict[str, Any]]) -> int:
     """
     if isinstance(prompt, str):
         return estimate_tokens(prompt)
-    if isinstance(prompt, list):
-        return sum(estimate_message_tokens(msg) for msg in prompt)
-    return 0
+    return sum(estimate_message_tokens(msg) for msg in prompt)
 
 
 def format_token_summary(

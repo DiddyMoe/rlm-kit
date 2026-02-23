@@ -3,7 +3,7 @@ Parsing utilities for RLM trajectories.
 """
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from rlm.core.types import REPLResult, RLMIteration
 
@@ -17,7 +17,7 @@ def find_code_blocks(text: str) -> list[str]:
     Returns None if no code blocks are found.
     """
     pattern = r"```repl\s*\n(.*?)\n```"
-    results = []
+    results: list[str] = []
 
     for match in re.finditer(pattern, text, re.DOTALL):
         code_content = match.group(1).strip()
@@ -40,27 +40,16 @@ def find_final_answer(text: str, environment: "BaseEnv | None" = None) -> str | 
     Returns:
         The final answer string, or None if no final answer pattern is found
     """
-    # Check for FINAL_VAR pattern first - must be at start of line
-    final_var_pattern = r"^\s*FINAL_VAR\((.*?)\)"
-    match = re.search(final_var_pattern, text, re.MULTILINE | re.DOTALL)
-    if match:
-        variable_name = match.group(1).strip().strip('"').strip("'")
-        if environment is not None:
-            result = environment.execute_code(f"print(FINAL_VAR({variable_name!r}))")
-            final_answer = result.stdout.strip()
-            if final_answer == "":
-                final_answer = result.stderr.strip() or ""
-            return final_answer
-        return None
+    text_without_code_fences = _strip_code_fences(text)
+    final_var_name = _extract_final_var_name(text_without_code_fences)
+    if final_var_name is not None:
+        return _resolve_final_var(final_var_name, environment)
 
-    # Check for FINAL pattern - must be at start of line
-    # Use greedy matching to capture content with nested parentheses
-    final_pattern = r"^\s*FINAL\((.*)\)\s*$"
-    match = re.search(final_pattern, text, re.MULTILINE | re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    final_payload = _extract_final_payload(text_without_code_fences)
+    if final_payload is not None:
+        return final_payload
 
-    return None
+    return _consume_environment_final_answer(environment)
 
 
 def format_iteration(
@@ -98,9 +87,7 @@ def format_iteration(
     return messages
 
 
-################
-# TODO: Remove and refactor these soon
-################
+# Legacy helpers retained for compatibility with existing tests and callers.
 
 
 def format_execution_result(result: REPLResult) -> str:
@@ -110,60 +97,113 @@ def format_execution_result(result: REPLResult) -> str:
     Args:
         result: The REPLResult object to format.
     """
-    result_parts = []
+    result_parts = _collect_execution_result_parts(result)
 
-    if result.stdout:
-        result_parts.append(f"\n{result.stdout}")
-
-    if result.stderr:
-        result_parts.append(f"\n{result.stderr}")
-
-    # Show some key variables (excluding internal ones)
-    important_vars = {}
-    for key, value in result.locals.items():
-        if not key.startswith("_") and key not in [
-            "__builtins__",
-            "__name__",
-            "__doc__",
-        ]:
-            # Only show simple types or short representations
-            if isinstance(value, (str, int, float, bool, list, dict, tuple)):
-                important_vars[key] = ""
-
-    if important_vars:
-        result_parts.append(f"REPL variables: {list(important_vars.keys())}\n")
-
-    return "\n\n".join(result_parts) if result_parts else "No output"
+    if not result_parts:
+        return "No output"
+    return "\n\n".join(result_parts)
 
 
-def check_for_final_answer(response: str, repl_env, logger) -> str | None:
+def check_for_final_answer(response: str, repl_env: Any, logger: Any) -> str | None:
     """Check if response contains a final answer."""
     # Use the new find_final_answer function which handles both FINAL and FINAL_VAR
+    _ = logger
     return find_final_answer(response, environment=repl_env)
 
 
-def convert_context_for_repl(context):
-    """
-    Convert REPL context to either some
-    """
+def convert_context_for_repl(context: Any) -> tuple[Any, str | None]:
+    """Convert context payload into REPL data and optional raw string form."""
     if isinstance(context, dict):
-        context_data = context
-        context_str = None
-    elif isinstance(context, str):
-        context_data = None
-        context_str = context
-    elif isinstance(context, list):
-        if len(context) > 0 and isinstance(context[0], dict):
-            if "content" in context[0]:
-                context_data = [msg.get("content", "") for msg in context]
-            else:
-                context_data = context
-            context_str = None
-        else:
-            context_data = context
-            context_str = None
-    else:
-        context_data = context
-        context_str = None
+        return cast(dict[str, Any], context), None
 
-    return context_data, context_str
+    if isinstance(context, str):
+        return None, context
+
+    if isinstance(context, list):
+        return _convert_list_context(cast(list[Any], context))
+
+    return context, None
+
+
+def _strip_code_fences(text: str) -> str:
+    return re.sub(r"```.*?```", "", text, flags=re.DOTALL)
+
+
+def _extract_final_var_name(text: str) -> str | None:
+    final_var_match = re.search(r"^\s*FINAL_VAR\((.*?)\)", text, re.MULTILINE | re.DOTALL)
+    if final_var_match is None:
+        return None
+    return final_var_match.group(1).strip().strip('"').strip("'")
+
+
+def _resolve_final_var(variable_name: str, environment: "BaseEnv | None") -> str | None:
+    if environment is None:
+        return None
+    result = environment.execute_code(f"print(FINAL_VAR({variable_name!r}))")
+    stdout_value = result.stdout.strip()
+    if stdout_value:
+        return stdout_value
+    return result.stderr.strip() or ""
+
+
+def _extract_final_payload(text: str) -> str | None:
+    final_match = re.search(r"^\s*FINAL\((.*)\)\s*$", text, re.MULTILINE | re.DOTALL)
+    if final_match is None:
+        return None
+    return final_match.group(1).strip()
+
+
+def _consume_environment_final_answer(environment: "BaseEnv | None") -> str | None:
+    if environment is None:
+        return None
+    consume = getattr(environment, "consume_final_answer", None)
+    if not callable(consume):
+        return None
+    final_answer = consume()
+    if final_answer is None:
+        return None
+    return str(final_answer)
+
+
+def _collect_execution_result_parts(result: REPLResult) -> list[str]:
+    result_parts: list[str] = []
+    if result.stdout:
+        result_parts.append(f"\n{result.stdout}")
+    if result.stderr:
+        result_parts.append(f"\n{result.stderr}")
+
+    visible_keys = _get_visible_local_keys(result)
+    if visible_keys:
+        result_parts.append(f"REPL variables: {visible_keys}\n")
+    return result_parts
+
+
+def _get_visible_local_keys(result: REPLResult) -> list[str]:
+    hidden_keys = {"__builtins__", "__name__", "__doc__"}
+    return [
+        key
+        for key, value in result.locals.items()
+        if not key.startswith("_")
+        and key not in hidden_keys
+        and isinstance(value, (str, int, float, bool, list, dict, tuple))
+    ]
+
+
+def _convert_list_context(context_list: list[Any]) -> tuple[Any, str | None]:
+    if not context_list:
+        return context_list, None
+
+    first_item = context_list[0]
+    if not isinstance(first_item, dict):
+        return context_list, None
+
+    first_message = cast(dict[str, Any], first_item)
+    if "content" not in first_message:
+        return context_list, None
+
+    context_data = [
+        cast(dict[str, Any], msg).get("content", "")
+        for msg in context_list
+        if isinstance(msg, dict)
+    ]
+    return context_data, None
