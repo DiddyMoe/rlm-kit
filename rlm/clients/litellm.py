@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
 import litellm
 
@@ -18,10 +18,13 @@ class LiteLLMClient(BaseLM):
         model_name: str | None = None,
         api_key: str | None = None,
         api_base: str | None = None,
-        **kwargs,
-    ):
-        super().__init__(model_name=model_name, **kwargs)
-        self.model_name = model_name
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        resolved_model_name = model_name or "gpt-4o-mini"
+        super().__init__(model_name=resolved_model_name, timeout=timeout)
+        self.kwargs = kwargs
+        self.model_name = resolved_model_name
         self.api_key = api_key
         self.api_base = api_base
 
@@ -32,63 +35,75 @@ class LiteLLMClient(BaseLM):
         self.model_total_tokens: dict[str, int] = defaultdict(int)
 
     def completion(self, prompt: str | list[dict[str, Any]], model: str | None = None) -> str:
-        if isinstance(prompt, str):
-            messages = [{"role": "user", "content": prompt}]
-        elif isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
-            messages = prompt
-        else:
-            raise ValueError(f"Invalid prompt type: {type(prompt)}")
+        messages = self._normalize_messages(prompt)
 
         model = model or self.model_name
         if not model:
             raise ValueError("Model name is required for LiteLLM client.")
 
-        kwargs = {"model": model, "messages": messages}
+        kwargs: dict[str, Any] = {"model": model, "messages": messages}
         if self.api_key:
             kwargs["api_key"] = self.api_key
         if self.api_base:
             kwargs["api_base"] = self.api_base
+        if self.timeout is not None:
+            kwargs["timeout"] = self.timeout
 
-        response = litellm.completion(**kwargs)
+        litellm_module = cast(Any, litellm)
+        response = litellm_module.completion(**kwargs)
         self._track_cost(response, model)
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        if content is None:
+            raise ValueError("LiteLLM response did not include message content.")
+        return str(content)
 
     async def acompletion(
         self, prompt: str | list[dict[str, Any]], model: str | None = None
     ) -> str:
-        if isinstance(prompt, str):
-            messages = [{"role": "user", "content": prompt}]
-        elif isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
-            messages = prompt
-        else:
-            raise ValueError(f"Invalid prompt type: {type(prompt)}")
+        messages = self._normalize_messages(prompt)
 
         model = model or self.model_name
         if not model:
             raise ValueError("Model name is required for LiteLLM client.")
 
-        kwargs = {"model": model, "messages": messages}
+        kwargs: dict[str, Any] = {"model": model, "messages": messages}
         if self.api_key:
             kwargs["api_key"] = self.api_key
         if self.api_base:
             kwargs["api_base"] = self.api_base
+        if self.timeout is not None:
+            kwargs["timeout"] = self.timeout
 
-        response = await litellm.acompletion(**kwargs)
+        litellm_module = cast(Any, litellm)
+        response = await litellm_module.acompletion(**kwargs)
         self._track_cost(response, model)
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        if content is None:
+            raise ValueError("LiteLLM response did not include message content.")
+        return str(content)
 
-    def _track_cost(self, response, model: str):
+    def _normalize_messages(self, prompt: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if isinstance(prompt, str):
+            return [{"role": "user", "content": prompt}]
+        return prompt
+
+    def _track_cost(self, response: Any, model: str) -> None:
+        usage = getattr(response, "usage", None)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        total_tokens = int(getattr(usage, "total_tokens", prompt_tokens + completion_tokens) or 0)
+
         self.model_call_counts[model] += 1
-        self.model_input_tokens[model] += response.usage.prompt_tokens
-        self.model_output_tokens[model] += response.usage.completion_tokens
-        self.model_total_tokens[model] += response.usage.total_tokens
+        self.model_input_tokens[model] += prompt_tokens
+        self.model_output_tokens[model] += completion_tokens
+        self.model_total_tokens[model] += total_tokens
 
         # Track last call for handler to read
-        self.last_prompt_tokens = response.usage.prompt_tokens
-        self.last_completion_tokens = response.usage.completion_tokens
+        self.last_prompt_tokens = prompt_tokens
+        self.last_completion_tokens = completion_tokens
 
     def get_usage_summary(self) -> UsageSummary:
-        model_summaries = {}
+        model_summaries: dict[str, ModelUsageSummary] = {}
         for model in self.model_call_counts:
             model_summaries[model] = ModelUsageSummary(
                 total_calls=self.model_call_counts[model],

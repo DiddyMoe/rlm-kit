@@ -1,6 +1,6 @@
 import os
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
 from dotenv import load_dotenv
 from google import genai
@@ -12,6 +12,7 @@ from rlm.core.types import ModelUsageSummary, UsageSummary
 load_dotenv()
 
 DEFAULT_GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+_MODEL_UNSET = object()
 
 
 class GeminiClient(BaseLM):
@@ -23,10 +24,20 @@ class GeminiClient(BaseLM):
     def __init__(
         self,
         api_key: str | None = None,
-        model_name: str | None = "gemini-2.5-flash",
-        **kwargs,
-    ):
-        super().__init__(model_name=model_name, **kwargs)
+        model_name: str | None | object = _MODEL_UNSET,
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if model_name is _MODEL_UNSET:
+            resolved_model_name = "gemini-2.5-flash"
+        elif model_name is None:
+            resolved_model_name = ""
+        elif isinstance(model_name, str):
+            resolved_model_name = model_name
+        else:
+            raise TypeError("model_name must be a string, None, or unset.")
+        super().__init__(model_name=resolved_model_name, timeout=timeout)
+        self.kwargs = kwargs
 
         if api_key is None:
             api_key = DEFAULT_GEMINI_API_KEY
@@ -37,7 +48,7 @@ class GeminiClient(BaseLM):
             )
 
         self.client = genai.Client(api_key=api_key)
-        self.model_name = model_name
+        self.model_name = resolved_model_name
 
         # Per-model usage tracking
         self.model_call_counts: dict[str, int] = defaultdict(int)
@@ -56,18 +67,28 @@ class GeminiClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for Gemini client.")
 
-        config = None
         if system_instruction:
-            config = types.GenerateContentConfig(system_instruction=system_instruction)
+            if isinstance(contents, str):
+                contents = f"System instruction: {system_instruction}\n\n{contents}"
+            else:
+                contents = [
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"System instruction: {system_instruction}")],
+                    ),
+                    *contents,
+                ]
 
-        response = self.client.models.generate_content(
+        response = cast(Any, self.client.models).generate_content(
             model=model,
             contents=contents,
-            config=config,
         )
 
         self._track_cost(response, model)
-        return response.text
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini response did not include text content.")
+        return text
 
     async def acompletion(
         self, prompt: str | list[dict[str, Any]], model: str | None = None
@@ -78,53 +99,60 @@ class GeminiClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for Gemini client.")
 
-        config = None
         if system_instruction:
-            config = types.GenerateContentConfig(system_instruction=system_instruction)
+            if isinstance(contents, str):
+                contents = f"System instruction: {system_instruction}\n\n{contents}"
+            else:
+                contents = [
+                    types.Content(
+                        role="user",
+                        parts=[types.Part(text=f"System instruction: {system_instruction}")],
+                    ),
+                    *contents,
+                ]
 
         # google-genai SDK supports async via aio interface
-        response = await self.client.aio.models.generate_content(
+        response = await cast(Any, self.client.aio.models).generate_content(
             model=model,
             contents=contents,
-            config=config,
         )
 
         self._track_cost(response, model)
-        return response.text
+        text = response.text
+        if text is None:
+            raise ValueError("Gemini response did not include text content.")
+        return text
 
-    def _prepare_contents(
-        self, prompt: str | list[dict[str, Any]]
-    ) -> tuple[list[types.Content] | str, str | None]:
+    def _prepare_contents(self, prompt: object) -> tuple[list[types.Content] | str, str | None]:
         """Prepare contents and extract system instruction for Gemini API."""
         system_instruction = None
 
         if isinstance(prompt, str):
             return prompt, None
 
-        if isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
-            # Convert OpenAI-style messages to Gemini format
-            contents = []
-            for msg in prompt:
-                role = msg.get("role")
-                content = msg.get("content", "")
+        if not isinstance(prompt, list):
+            raise ValueError("Invalid prompt type. Expected str or list[dict[str, Any]].")
 
-                if role == "system":
-                    # Gemini handles system instruction separately
-                    system_instruction = content
-                elif role == "user":
-                    contents.append(types.Content(role="user", parts=[types.Part(text=content)]))
-                elif role == "assistant":
-                    # Gemini uses "model" instead of "assistant"
-                    contents.append(types.Content(role="model", parts=[types.Part(text=content)]))
-                else:
-                    # Default to user role for unknown roles
-                    contents.append(types.Content(role="user", parts=[types.Part(text=content)]))
+        # Convert OpenAI-style messages to Gemini format
+        contents: list[types.Content] = []
+        for msg in cast(list[Any], prompt):
+            if not isinstance(msg, dict):
+                raise ValueError("Invalid prompt type. Expected str or list[dict[str, Any]].")
+            msg_dict = cast(dict[str, Any], msg)
+            role = cast(str | None, msg_dict.get("role"))
+            content_obj = msg_dict.get("content", "")
+            content = str(content_obj)
 
-            return contents, system_instruction
+            if role == "system":
+                system_instruction = content
+            elif role == "assistant":
+                contents.append(types.Content(role="model", parts=[types.Part(text=content)]))
+            else:
+                contents.append(types.Content(role="user", parts=[types.Part(text=content)]))
 
-        raise ValueError(f"Invalid prompt type: {type(prompt)}")
+        return contents, system_instruction
 
-    def _track_cost(self, response: types.GenerateContentResponse, model: str):
+    def _track_cost(self, response: types.GenerateContentResponse, model: str) -> None:
         self.model_call_counts[model] += 1
 
         # Extract token usage from response
@@ -145,7 +173,7 @@ class GeminiClient(BaseLM):
             self.last_completion_tokens = 0
 
     def get_usage_summary(self) -> UsageSummary:
-        model_summaries = {}
+        model_summaries: dict[str, ModelUsageSummary] = {}
         for model in self.model_call_counts:
             model_summaries[model] = ModelUsageSummary(
                 total_calls=self.model_call_counts[model],

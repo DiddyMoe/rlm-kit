@@ -73,7 +73,7 @@ class VsCodeLM(BaseLM):
         sys.stdout.write(line)
         sys.stdout.flush()
 
-    def _roundtrip(self, prompt: str, model: str | None = None) -> str:
+    def _roundtrip(self, prompt: str, model: str | None = None) -> tuple[str, int, int]:
         """Send an llm_request and block until the extension responds."""
         nonce = uuid.uuid4().hex
         request: dict[str, Any] = {
@@ -102,7 +102,10 @@ class VsCodeLM(BaseLM):
         if "error" in container:
             raise RuntimeError(f"VsCodeLM: extension returned error: {container['error']}")
 
-        return container["text"]
+        text = str(container["text"])
+        prompt_tokens = int(container.get("promptTokens", 0) or 0)
+        completion_tokens = int(container.get("completionTokens", 0) or 0)
+        return text, prompt_tokens, completion_tokens
 
     # ── BaseLM interface ─────────────────────────────────────────────
 
@@ -111,7 +114,7 @@ class VsCodeLM(BaseLM):
     ) -> str:
         if isinstance(prompt, list):
             # Flatten message list into a single string for the bridge
-            parts = []
+            parts: list[str] = []
             for msg in prompt:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
@@ -125,11 +128,13 @@ class VsCodeLM(BaseLM):
         model = model or self.model_name
         self.model_call_counts[model] += 1
 
-        result = self._roundtrip(prompt_str, model)
+        result_text, prompt_tokens, completion_tokens = self._roundtrip(prompt_str, model)
 
-        # We don't get token counts from the VS Code LM API on the Python side,
-        # but we track call counts for usage summaries.
-        return result
+        self.model_input_tokens[model] += prompt_tokens
+        self.model_output_tokens[model] += completion_tokens
+        self.last_prompt_tokens = prompt_tokens
+        self.last_completion_tokens = completion_tokens
+        return result_text
 
     async def acompletion(
         self, prompt: str | list[dict[str, Any]] | dict[str, Any], model: str | None = None

@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
 import anthropic
 
@@ -17,12 +17,21 @@ class AnthropicClient(BaseLM):
         api_key: str,
         model_name: str | None = None,
         max_tokens: int = 32768,
-        **kwargs,
-    ):
-        super().__init__(model_name=model_name, **kwargs)
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.async_client = anthropic.AsyncAnthropic(api_key=api_key)
-        self.model_name = model_name
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        resolved_model_name = model_name or "claude-3-5-sonnet"
+        super().__init__(model_name=resolved_model_name, timeout=timeout)
+        self.kwargs = kwargs
+        if not api_key:
+            raise ValueError("Anthropic API key is required.")
+        if timeout is not None:
+            self.client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+            self.async_client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout)
+        else:
+            self.client = anthropic.Anthropic(api_key=api_key)
+            self.async_client = anthropic.AsyncAnthropic(api_key=api_key)
+        self.model_name = resolved_model_name
         self.max_tokens = max_tokens
 
         # Per-model usage tracking
@@ -38,13 +47,16 @@ class AnthropicClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for Anthropic client.")
 
-        kwargs = {"model": model, "max_tokens": self.max_tokens, "messages": messages}
-        if system:
-            kwargs["system"] = system
-
-        response = self.client.messages.create(**kwargs)
+        create_kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": self.max_tokens,
+            "messages": messages,
+        }
+        if system is not None:
+            create_kwargs["system"] = system
+        response = cast(anthropic.types.Message, self.client.messages.create(**create_kwargs))
         self._track_cost(response, model)
-        return response.content[0].text
+        return self._extract_text_response(response)
 
     async def acompletion(
         self, prompt: str | list[dict[str, Any]], model: str | None = None
@@ -55,34 +67,45 @@ class AnthropicClient(BaseLM):
         if not model:
             raise ValueError("Model name is required for Anthropic client.")
 
-        kwargs = {"model": model, "max_tokens": self.max_tokens, "messages": messages}
-        if system:
-            kwargs["system"] = system
-
-        response = await self.async_client.messages.create(**kwargs)
+        create_kwargs: dict[str, Any] = {
+            "model": model,
+            "max_tokens": self.max_tokens,
+            "messages": messages,
+        }
+        if system is not None:
+            create_kwargs["system"] = system
+        response = cast(
+            anthropic.types.Message,
+            await self.async_client.messages.create(**create_kwargs),
+        )
         self._track_cost(response, model)
-        return response.content[0].text
+        return self._extract_text_response(response)
 
     def _prepare_messages(
         self, prompt: str | list[dict[str, Any]]
     ) -> tuple[list[dict[str, Any]], str | None]:
         """Prepare messages and extract system prompt for Anthropic API."""
         system = None
+        messages: list[dict[str, Any]]
 
         if isinstance(prompt, str):
             messages = [{"role": "user", "content": prompt}]
-        elif isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
-            # Extract system message if present (Anthropic handles system separately)
+        else:
             messages = []
             for msg in prompt:
                 if msg.get("role") == "system":
                     system = msg.get("content")
                 else:
                     messages.append(msg)
-        else:
-            raise ValueError(f"Invalid prompt type: {type(prompt)}")
 
         return messages, system
+
+    def _extract_text_response(self, response: Any) -> str:
+        for block in getattr(response, "content", []):
+            text = getattr(block, "text", None)
+            if isinstance(text, str) and text:
+                return text
+        raise ValueError("Anthropic response did not include a text block.")
 
     def _track_cost(self, response: anthropic.types.Message, model: str):
         self.model_call_counts[model] += 1
@@ -95,7 +118,7 @@ class AnthropicClient(BaseLM):
         self.last_completion_tokens = response.usage.output_tokens
 
     def get_usage_summary(self) -> UsageSummary:
-        model_summaries = {}
+        model_summaries: dict[str, ModelUsageSummary] = {}
         for model in self.model_call_counts:
             model_summaries[model] = ModelUsageSummary(
                 total_calls=self.model_call_counts[model],

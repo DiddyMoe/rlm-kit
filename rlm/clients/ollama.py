@@ -33,12 +33,15 @@ class OllamaClient(BaseLM):
         self,
         base_url: str | None = None,
         model_name: str | None = None,
-        **kwargs,
-    ):
-        super().__init__(model_name=model_name, **kwargs)
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> None:
+        resolved_model_name = model_name or ""
+        super().__init__(model_name=resolved_model_name, timeout=timeout)
+        self.kwargs = kwargs
 
         self.base_url = (base_url or DEFAULT_OLLAMA_BASE_URL).rstrip("/")
-        self.model_name = model_name
+        self.model_name = resolved_model_name
 
         if not self.model_name:
             raise ValueError("Model name is required for Ollama client.")
@@ -60,20 +63,18 @@ class OllamaClient(BaseLM):
         """
         if isinstance(prompt, str):
             return prompt
-        if isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
-            # Convert message list to string
-            messages = []
-            for msg in prompt:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
-                if role == "system":
-                    messages.append(f"System: {content}")
-                elif role == "user":
-                    messages.append(f"User: {content}")
-                elif role == "assistant":
-                    messages.append(f"Assistant: {content}")
-            return "\n".join(messages)
-        raise ValueError(f"Invalid prompt type: {type(prompt)}")
+
+        messages: list[str] = []
+        for msg in prompt:
+            role = str(msg.get("role", "user"))
+            content = str(msg.get("content", ""))
+            if role == "system":
+                messages.append(f"System: {content}")
+            elif role == "user":
+                messages.append(f"User: {content}")
+            elif role == "assistant":
+                messages.append(f"Assistant: {content}")
+        return "\n".join(messages)
 
     def _make_completion_request(self, prompt: str, model: str | None = None) -> dict[str, Any]:
         """Make a completion request to Ollama API.
@@ -90,13 +91,13 @@ class OllamaClient(BaseLM):
             raise ValueError("Model name is required for Ollama client.")
 
         url = f"{self.base_url}/api/generate"
-        payload = {
+        payload: dict[str, str | bool] = {
             "model": model_name,
             "prompt": prompt,
             "stream": False,
         }
 
-        response = requests.post(url, json=payload, timeout=300)
+        response = requests.post(url, json=payload, timeout=self.timeout or 300)
         response.raise_for_status()
         return response.json()
 
@@ -113,6 +114,8 @@ class OllamaClient(BaseLM):
         """
         normalized_prompt = self._normalize_prompt(prompt)
         model_name = model or self.model_name
+        if not model_name:
+            raise ValueError("Model name is required for Ollama client.")
 
         def _make_request() -> dict[str, Any]:
             return self._make_completion_request(normalized_prompt, model_name)
@@ -140,8 +143,8 @@ class OllamaClient(BaseLM):
             raise ValueError("Empty response from Ollama API")
 
         # Track usage (Ollama provides token counts in response)
-        prompt_eval_count = response.get("prompt_eval_count", 0)
-        eval_count = response.get("eval_count", 0)
+        prompt_eval_count = int(response.get("prompt_eval_count", 0) or 0)
+        eval_count = int(response.get("eval_count", 0) or 0)
         total_count = prompt_eval_count + eval_count
 
         # Update usage tracking
@@ -179,11 +182,9 @@ class OllamaClient(BaseLM):
 
         for model_name in self.model_call_counts:
             model_usage_summaries[model_name] = ModelUsageSummary(
-                calls=self.model_call_counts[model_name],
-                input_tokens=self.model_input_tokens[model_name],
-                output_tokens=self.model_output_tokens[model_name],
-                total_tokens=self.model_total_tokens[model_name],
-                cost=0.0,  # Ollama is free (local)
+                total_calls=self.model_call_counts[model_name],
+                total_input_tokens=self.model_input_tokens[model_name],
+                total_output_tokens=self.model_output_tokens[model_name],
             )
 
         return UsageSummary(model_usage_summaries=model_usage_summaries)
@@ -196,9 +197,7 @@ class OllamaClient(BaseLM):
         """
         model_name = self.model_name or "unknown"
         return ModelUsageSummary(
-            calls=1,
-            input_tokens=self.model_input_tokens.get(model_name, 0),
-            output_tokens=self.model_output_tokens.get(model_name, 0),
-            total_tokens=self.model_total_tokens.get(model_name, 0),
-            cost=0.0,  # Ollama is free (local)
+            total_calls=1,
+            total_input_tokens=self.model_input_tokens.get(model_name, 0),
+            total_output_tokens=self.model_output_tokens.get(model_name, 0),
         )
