@@ -38,6 +38,7 @@ class Session:
     created_at: float
     tool_call_count: int = 0
     output_bytes: int = 0
+    cancellation_requested: bool = False
     provenance: list[SnippetProvenance] = field(default_factory=_default_provenance)
     accessed_spans: dict[str, set[tuple[int, int]]] = field(default_factory=_default_accessed_spans)
 
@@ -74,6 +75,7 @@ class SessionManager:
     def __init__(self) -> None:
         """Initialize session manager."""
         self._sessions: dict[str, Session] = {}
+        self._active_requests: dict[str, str] = {}
         self._last_cleanup: float = time.time()
         self._cleanup_interval: float = 60.0  # Cleanup every 60 seconds
 
@@ -141,6 +143,9 @@ class SessionManager:
 
         Optimized for local IDE: fast budget checks with early returns.
         """
+        if session.cancellation_requested:
+            return False, "Cancelled by client"
+
         if session.tool_call_count >= session.config.max_tool_calls:
             return (
                 False,
@@ -158,3 +163,31 @@ class SessionManager:
             return False, f"Timeout exceeded: {elapsed_ms}ms >= {session.config.timeout_ms}ms"
 
         return True, None
+
+    def cancel_session(self, session_id: str) -> bool:
+        """Request cancellation for a session. Returns True if session was found."""
+        session = self._sessions.get(session_id)
+        if session is None:
+            return False
+        session.cancellation_requested = True
+        return True
+
+    def cancel_by_request_id(self, request_id: str) -> bool:
+        """Cancel a session associated with a tool call request ID.
+
+        The MCP `notifications/cancelled` notification includes the original
+        request ID.  We look up the session that is actively handling that
+        request and flag it for cancellation.
+        """
+        session_id = self._active_requests.get(request_id)
+        if session_id is None:
+            return False
+        return self.cancel_session(session_id)
+
+    def register_active_request(self, request_id: str, session_id: str) -> None:
+        """Associate a tool call request ID with a session for cancellation routing."""
+        self._active_requests[request_id] = session_id
+
+    def unregister_active_request(self, request_id: str) -> None:
+        """Remove a completed request ID from active tracking."""
+        self._active_requests.pop(request_id, None)

@@ -5,7 +5,11 @@ from typing import Any, cast
 
 from rlm.core.rlm import RLM, RLMConfig
 from rlm.mcp_gateway.constants import MAX_SPAN_LINES
-from rlm.mcp_gateway.session import SessionManager
+from rlm.mcp_gateway.session import Session, SessionManager
+
+
+class CancellationError(Exception):
+    """Raised when a session is cancelled mid-completion."""
 
 
 class CompleteTools:
@@ -19,8 +23,7 @@ class CompleteTools:
         """
         self.session_manager = session_manager
 
-    def _resolve_backend_configuration(self) -> tuple[str, dict[str, Any]]:
-        """Resolve backend configuration from environment with fail-fast validation."""
+    def _resolve_backend_settings(self) -> tuple[str, str | None, str, str]:
         backend = os.getenv("RLM_BACKEND", "openai")
         model_name = os.getenv("RLM_MODEL_NAME")
 
@@ -36,6 +39,42 @@ class CompleteTools:
             )
 
         api_key_env_var, default_model_name = backend_config
+        return backend, model_name, api_key_env_var, default_model_name
+
+    def _build_missing_api_key_response(
+        self,
+        session_id: str,
+        backend: str,
+        api_key_env_var: str,
+        allow_elicitation: bool,
+    ) -> dict[str, Any]:
+        error_message = f"API key not found for backend '{backend}'. Set {api_key_env_var} environment variable."
+        if not allow_elicitation:
+            return {
+                "success": False,
+                "error": error_message,
+                "error_code": "MISSING_API_KEY",
+            }
+
+        return {
+            "success": False,
+            "error": error_message,
+            "error_code": "MISSING_API_KEY",
+            "elicitation_request": {
+                "title": "API key required",
+                "message": (
+                    f"Missing {api_key_env_var} for backend '{backend}'. Provide the API key to continue this run."
+                ),
+                "options": [],
+                "allowFreeform": True,
+                "session_id": session_id,
+                "field": api_key_env_var,
+            },
+        }
+
+    def _resolve_backend_configuration(self) -> tuple[str, dict[str, Any]]:
+        """Resolve backend configuration from environment with fail-fast validation."""
+        backend, model_name, api_key_env_var, default_model_name = self._resolve_backend_settings()
         api_key = os.getenv(api_key_env_var)
         if not api_key:
             raise ValueError(
@@ -64,15 +103,24 @@ class CompleteTools:
             return default_max_iterations
         return budgets.get("max_iterations", default_max_iterations)
 
-    def _create_rlm_instance(
-        self, backend: str, backend_kwargs: dict[str, Any], max_iterations: int
+    def create_rlm_instance(
+        self,
+        backend: str,
+        backend_kwargs: dict[str, Any],
+        max_iterations: int,
+        session: Session | None = None,
     ) -> RLM:
+        def _check_cancellation(payload: dict[str, Any]) -> None:
+            if session is not None and session.cancellation_requested:
+                raise CancellationError("Cancelled by client")
+
         config = RLMConfig(
             backend=cast(Any, backend),
             backend_kwargs=backend_kwargs,
             environment="local",
             max_iterations=min(max_iterations, 10),
             verbose=False,
+            on_iteration_start=_check_cancellation if session is not None else None,
         )
         return RLM(config)
 
@@ -175,6 +223,7 @@ class CompleteTools:
         budgets: dict[str, Any] | None = None,
         constraints: dict[str, Any] | None = None,
         response_format: str = "text",
+        allow_elicitation: bool = False,
     ) -> dict[str, Any]:
         """Execute RLM completion with strict budgets.
 
@@ -202,12 +251,29 @@ class CompleteTools:
         max_iterations = self._resolve_max_iterations(budgets, session.config.max_iterations)
 
         try:
+            backend, _, api_key_env_var, _ = self._resolve_backend_settings()
+            if not os.getenv(api_key_env_var):
+                session.tool_call_count += 1
+                return self._build_missing_api_key_response(
+                    session_id=session_id,
+                    backend=backend,
+                    api_key_env_var=api_key_env_var,
+                    allow_elicitation=allow_elicitation,
+                )
+
             backend, backend_kwargs = self._resolve_backend_configuration()
-            rlm = self._create_rlm_instance(backend, backend_kwargs, max_iterations)
+            rlm = self.create_rlm_instance(backend, backend_kwargs, max_iterations, session)
             result = rlm.completion(task)
 
             session.tool_call_count += 1
             return self._build_completion_output(result, session_id, response_format, task)
+        except CancellationError:
+            session.tool_call_count += 1
+            return {
+                "success": False,
+                "error": "Cancelled by client",
+                "is_cancelled": True,
+            }
         except Exception as e:
             session.tool_call_count += 1
             return {"success": False, "error": f"RLM execution failed: {str(e)}"}

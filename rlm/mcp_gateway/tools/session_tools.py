@@ -34,7 +34,8 @@ class SessionTools:
         }
 
     def session_close(self, session_id: str) -> dict[str, Any]:
-        """Close a session."""
+        """Close a session and cancel any in-flight completions."""
+        self.session_manager.cancel_session(session_id)
         success = self.session_manager.close_session(session_id)
         return {"success": success}
 

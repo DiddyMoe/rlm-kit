@@ -10,10 +10,10 @@ import os
 import sys
 import time
 from collections import defaultdict, deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import uuid4
 
 _gateway_log = logging.getLogger("rlm.mcp_gateway")
@@ -158,6 +158,18 @@ except ImportError:
     CORSMiddleware = None
 
 HTTP_AVAILABLE: bool = uvicorn is not None and FastAPI is not None
+
+if TYPE_CHECKING:
+    from fastapi import Request as FastAPIRequest
+else:
+    FastAPIRequest = cast(Any, Request) if Request is not None else Any
+
+
+class HttpRequest(Protocol):
+    headers: Mapping[str, Any]
+
+    async def json(self) -> Any: ...
+
 
 # Gateway imports (after optional deps so E402 is intentional)
 from rlm.clients import get_client  # noqa: E402
@@ -384,9 +396,17 @@ class RLMMCPGateway:
         budgets: dict[str, Any] | None = None,
         constraints: dict[str, Any] | None = None,
         response_format: str = "text",
+        allow_elicitation: bool = False,
     ) -> dict[str, Any]:
         """Execute RLM completion with strict budgets."""
-        return self.complete_tools.complete(session_id, task, budgets, constraints, response_format)
+        return self.complete_tools.complete(
+            session_id,
+            task,
+            budgets,
+            constraints,
+            response_format,
+            allow_elicitation,
+        )
 
     def provenance_report(self, session_id: str, export_json: bool = False) -> dict[str, Any]:
         """Get complete provenance graph for a session. export_json=True returns export_payload for file/SIEM."""
@@ -523,6 +543,8 @@ _COMPLETE_OUTPUT_SCHEMA: dict[str, Any] = {
         "response_format": {"type": "string"},
         "model": {"type": ["string", "null"]},
         "error": {"type": ["string", "null"]},
+        "error_code": {"type": ["string", "null"]},
+        "elicitation": {"type": ["object", "null"]},
     },
     "required": ["success", "answer", "usage", "response_format"],
 }
@@ -654,6 +676,9 @@ def _build_complete_structured_content(
         "response_format": str(arguments.get("response_format", "text")),
         "model": _infer_primary_model(usage_dict),
         "error": tool_result.get("error") if not success else None,
+        "error_code": tool_result.get("error_code") if not success else None,
+        "elicitation": tool_result.get("elicitation") if not success else None,
+        "elicitation_request": tool_result.get("elicitation_request") if not success else None,
     }
 
 
@@ -691,6 +716,7 @@ def _make_tool(
     input_schema: dict[str, Any],
     output_schema: dict[str, Any] | None = None,
     annotations: dict[str, Any] | None = None,
+    icons: list[dict[str, str]] | None = None,
 ) -> Any:
     kwargs: dict[str, Any] = {
         "name": name,
@@ -699,6 +725,8 @@ def _make_tool(
     }
     if output_schema is not None:
         kwargs["outputSchema"] = output_schema
+    if icons is not None:
+        kwargs["icons"] = icons
     if annotations is not None:
         annotation_title = annotations.get("title")
         if isinstance(annotation_title, str) and annotation_title:
@@ -1006,6 +1034,11 @@ _TOOL_SPECS: list[dict[str, Any]] = [
                         "max_span_size": {"type": "number"},
                     },
                 },
+                "allow_elicitation": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Enable server-initiated elicitation fallback for missing API keys when supported.",
+                },
             },
             "required": ["session_id", "task"],
         },
@@ -1039,6 +1072,12 @@ _TOOL_SPECS: list[dict[str, Any]] = [
     },
 ]
 
+_TOOL_ICONS: list[dict[str, str]] = [
+    {
+        "src": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22128%22%20height%3D%22128%22%20viewBox%3D%220%200%20128%20128%22%20fill%3D%22none%22%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%22112%22%20height%3D%22112%22%20rx%3D%2220%22%20fill%3D%22%231A1B26%22/%3E%3Cpath%20d%3D%22M34%2094V34H62C77.464%2034%2088%2043.58%2088%2058C88%2072.42%2077.464%2082%2062%2082H46V94H34ZM46%2070H61.2C69.216%2070%2075%2064.86%2075%2058C75%2051.14%2069.216%2046%2061.2%2046H46V70Z%22%20fill%3D%22%237AA2F7%22/%3E%3Cpath%20d%3D%22M90%2094V34H102V94H90Z%22%20fill%3D%22%237DCFFF%22/%3E%3C/svg%3E",
+    }
+]
+
 TOOL_SPECS: list[dict[str, Any]] = _TOOL_SPECS
 
 
@@ -1052,6 +1091,7 @@ async def handle_list_tools() -> list[Any]:
             input_schema=cast(dict[str, Any], spec["input_schema"]),
             output_schema=cast(dict[str, Any] | None, spec.get("output_schema")),
             annotations=cast(dict[str, Any] | None, spec.get("annotations")),
+            icons=_TOOL_ICONS,
         )
         for spec in _TOOL_SPECS
     ]
@@ -1747,6 +1787,10 @@ if HTTP_AVAILABLE:
     ) -> dict[str, Any]:
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
+        if isinstance(tool_name, str) and _canonical_tool_name(tool_name) == "rlm.complete":
+            if isinstance(arguments, dict):
+                arguments_dict = cast(dict[str, Any], arguments)
+                arguments_dict.setdefault("allow_elicitation", True)
         progress_token = f"{request_id or 'no-id'}:tools/call"
         _push_progress_event(
             session_id,
@@ -1779,6 +1823,37 @@ if HTTP_AVAILABLE:
             100,
             f"Completed tool call: {tool_name}",
         )
+        if (
+            isinstance(tool_name, str)
+            and _canonical_tool_name(tool_name) == "rlm.complete"
+            and structured_content is not None
+        ):
+            elicitation_request = structured_content.get("elicitation_request")
+            if isinstance(elicitation_request, dict):
+                elicitation_request_dict = cast(dict[str, Any], elicitation_request)
+                elicitation_result = _create_elicitation(session_id, elicitation_request_dict)
+                structured_content["elicitation"] = elicitation_result
+
+                payload = elicitation_request_dict
+                payload["id"] = elicitation_result.get("elicitationId")
+                payload["status"] = elicitation_result.get("status")
+                payload["session_id"] = session_id
+                payload.setdefault("resolved", False)
+                payload.setdefault("response", None)
+                payload.setdefault("created_at", time.time())
+
+                content.append(
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "elicitation": elicitation_result,
+                                "message": "Elicitation requested for missing API key.",
+                            },
+                            ensure_ascii=False,
+                        ),
+                    }
+                )
         response_result: dict[str, Any] = {"content": content}
         if structured_content is not None:
             response_result["structuredContent"] = structured_content
@@ -2104,10 +2179,10 @@ if HTTP_AVAILABLE:
         }
 
     def _validate_mcp_request(
-        request: Any,
+        request: HttpRequest,
     ) -> tuple[str, dict[str, Any] | None]:
         """Parse headers and validate auth. Returns (session_id, error_or_None)."""
-        request_headers = cast(dict[str, Any], getattr(request, "headers", {}))
+        request_headers = dict(request.headers)
         authorization = cast(str | None, request_headers.get("Authorization"))
         mcp_session_id = cast(
             str | None,
@@ -2162,19 +2237,20 @@ if HTTP_AVAILABLE:
         return response
 
     @app.post("/mcp")
-    async def mcp_endpoint(request: Any) -> dict[str, Any] | list[dict[str, Any]]:
+    async def mcp_endpoint(request: FastAPIRequest) -> dict[str, Any] | list[dict[str, Any]]:
         """
         MCP protocol endpoint for remote IDE connections.
 
         Accepts MCP protocol messages and returns responses.
         """
-        session_id, error = _validate_mcp_request(request)
+        http_request = cast(HttpRequest, request)
+        session_id, error = _validate_mcp_request(http_request)
         if error is not None:
             return error
 
         body: Any = None
         try:
-            body = await request.json()
+            body = await http_request.json()
 
             if not isinstance(body, (dict, list)):
                 return {
@@ -2194,19 +2270,20 @@ if HTTP_AVAILABLE:
 
     @app.post("/mcp/messages")
     async def mcp_streamable_messages_endpoint(
-        request: Any,
+        request: FastAPIRequest,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         """Streamable HTTP-compatible POST endpoint for MCP messages."""
         return await mcp_endpoint(request)
 
     @app.get("/mcp/messages")
-    async def mcp_streamable_messages_stream(request: Any) -> dict[str, Any]:
+    async def mcp_streamable_messages_stream(request: FastAPIRequest) -> dict[str, Any]:
         """Streamable HTTP-compatible GET endpoint for server-initiated streams.
 
         This returns queued request/response lifecycle events for the provided
         MCP session identifier.
         """
-        request_headers = cast(dict[str, Any], getattr(request, "headers", {}))
+        http_request = cast(HttpRequest, request)
+        request_headers = dict(http_request.headers)
         session_id = cast(
             str | None,
             request_headers.get("Mcp-Session-Id") or request_headers.get("mcp-session-id"),
