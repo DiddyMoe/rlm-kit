@@ -35,10 +35,13 @@ You must follow the project conventions in `AGENTS.md`.
 3. Read `docs/orchestrator/state.json` — current project state
 4. Read `docs/orchestrator/plan.md` — do not contradict existing plan
 5. Read `docs/quality/fix_now.md` — cross-reference with existing fixes
-6. Read `docs/orchestrator/research-backlog.md` — do not implement research items (if exists)
-7. Read `AGENTS.md` — project conventions you must follow
-8. If `debug-backlog.md` does not exist or contains no `DB-{NNN}` items, report **"Backlog is empty — run debug-plan.prompt.md first to populate it"** and stop
-9. If all remaining items are Priority 5 only, report "Only Priority 5 items remain — no actionable items" and stop
+6. Read `docs/orchestrator/research-findings.md` — research context (if exists; do not duplicate)
+7. Read `docs/orchestrator/research-backlog.md` — do not implement research items (if exists)
+8. Read `docs/orchestrator/refactor-findings.md` — refactor context (if exists; do not duplicate)
+9. Read `docs/orchestrator/refactor-backlog.md` — do not implement refactor items (if exists)
+10. Read `AGENTS.md` — project conventions you must follow
+11. If `debug-backlog.md` does not exist or contains no `DB-{NNN}` items, report **"Backlog is empty — run debug-plan.prompt.md first to populate it"** and stop
+12. If all remaining items are Priority 5 only, report "Only Priority 5 items remain — no actionable items" and stop
 
 ### Phase 2 — Implementation Protocol
 
@@ -120,7 +123,6 @@ For **every** fix, run the full evidence gate before marking complete:
 5. **Artifact update** (mandatory):
    - Remove the completed item from `docs/orchestrator/debug-backlog.md`
    - Remove the fixed finding from `docs/orchestrator/debug-findings.md`
-   - Append to `docs/orchestrator/run_log.md` with: timestamp, item ID, actions taken, tool output summary, test added/updated
    - Update `docs/orchestrator/state.json`: add item ID to `recommendations.applied` and `recommendations.verified`
 
 ### Phase 3 — Recursive Loop
@@ -139,6 +141,7 @@ After completing a pass through Phase 2, **re-read** `docs/orchestrator/debug-ba
 ### Boundaries
 
 - **DO NOT** implement items from `docs/orchestrator/research-backlog.md` — those belong to the research agent
+- **DO NOT** implement items from `docs/orchestrator/refactor-backlog.md` — those belong to the refactor agent
 - **DO** remove completed findings from `debug-findings.md` — do not leave stale fixed entries
 - **DO NOT** modify `docs/orchestrator/plan.md` — propose amendments if needed
 - **DO NOT** implement Priority 5 items if any Priority 1–4 items remain

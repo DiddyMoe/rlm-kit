@@ -36,11 +36,13 @@ You must follow the project conventions in `AGENTS.md`.
 3. Read `docs/orchestrator/state.json` — current project state
 4. Read `docs/orchestrator/plan.md` — context; note items marked `⚠️ REQUIRES PLAN AMENDMENT`
 5. Read `docs/quality/fix_now.md` — cross-reference with existing fixes
-6. Read `docs/orchestrator/debug-backlog.md` — do not implement debug items (if exists)
-7. Read `docs/orchestrator/research-backlog.md` — do not implement research items (if exists)
-8. Read `AGENTS.md` — project conventions you must follow
-9. If `refactor-backlog.md` does not exist or contains no `RT-{NNN}` items, report **"Backlog is empty — run refactor-plan.prompt.md first to populate it"** and stop
-10. If all remaining items are Priority 6 only, report "Only Priority 6 (test structure) items remain — these can be implemented but verify with user if desired" and continue only if there are no higher-priority items
+6. Read `docs/orchestrator/debug-findings.md` — debug context (if exists; do not duplicate)
+7. Read `docs/orchestrator/debug-backlog.md` — do not implement debug items (if exists)
+8. Read `docs/orchestrator/research-findings.md` — research context (if exists; do not duplicate)
+9. Read `docs/orchestrator/research-backlog.md` — do not implement research items (if exists)
+10. Read `AGENTS.md` — project conventions you must follow
+11. If `refactor-backlog.md` does not exist or contains no `RT-{NNN}` items, report **"Backlog is empty — run refactor-plan.prompt.md first to populate it"** and stop
+12. If all remaining items are Priority 6 only, report "Only Priority 6 (test structure) items remain — these can be implemented but verify with user if desired" and continue only if there are no higher-priority items
 
 ### Phase 2 — Implementation Protocol
 
@@ -198,7 +200,6 @@ For **every** refactoring, run the full evidence gate before marking complete:
 8. **Artifact update** (mandatory):
    - Remove the completed item from `docs/orchestrator/refactor-backlog.md`
    - Remove the refactored finding from `docs/orchestrator/refactor-findings.md`
-   - Append to `docs/orchestrator/run_log.md` with: timestamp, item ID, actions taken, files modified, old pattern removed, tool output summary, test added/updated
    - Update `docs/orchestrator/state.json`: add item ID to `recommendations.applied` and `recommendations.verified`
 
 ### Phase 3 — Recursive Loop
@@ -244,7 +245,7 @@ After the recursive loop is exhausted, perform a final cleanup pass:
 - If a dependency is missing, skip the item and continue to the next one at the same or lower priority
 - If refactoring one item would break another tracked item, document the conflict and determine if they should be merged into a single refactoring
 - If a refactoring introduces new tool errors in unrelated files, investigate whether those files had latent issues exposed by the refactoring — add them as new backlog items if so
-- If an old pattern search (evidence gate step 2) reveals call sites in generated or third-party code you cannot modify, document as a known exception in the run_log entry
+- If an old pattern search (evidence gate step 2) reveals call sites in generated or third-party code you cannot modify, document as a known exception in the state.json entry
 
 ### Convergence Tracking
 

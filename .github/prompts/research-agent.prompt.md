@@ -34,9 +34,13 @@ You must follow the project conventions in `AGENTS.md`.
 3. Read `docs/orchestrator/state.json` — current project state
 4. Read `docs/orchestrator/plan.md` — do not contradict existing plan
 5. Read `docs/quality/fix_now.md` — avoid duplicating existing fixes
-6. Read `AGENTS.md` — project conventions you must follow
-7. If `research-backlog.md` does not exist or contains no `RF-{NNN}` items, report **"Backlog is empty — run research-plan.prompt.md first to populate it"** and stop
-8. If all remaining items are Priority 4 only, report "Only Priority 4 (future) items remain — no actionable items without user approval" and stop
+6. Read `docs/orchestrator/debug-findings.md` — debug context (if exists; do not duplicate)
+7. Read `docs/orchestrator/debug-backlog.md` — do not implement debug items (if exists)
+8. Read `docs/orchestrator/refactor-findings.md` — refactor context (if exists; do not duplicate)
+9. Read `docs/orchestrator/refactor-backlog.md` — do not implement refactor items (if exists)
+10. Read `AGENTS.md` — project conventions you must follow
+11. If `research-backlog.md` does not exist or contains no `RF-{NNN}` items, report **"Backlog is empty — run research-plan.prompt.md first to populate it"** and stop
+12. If all remaining items are Priority 4 or higher only, report "Only Priority 4+ (future/low-priority) items remain — no actionable items without user approval" and stop
 
 ### Phase 2 — Implementation Protocol
 
@@ -73,8 +77,7 @@ For each backlog item (highest priority first, `RF-{NNN}` order within priority)
 3. **Regression check**: Confirm no new errors were introduced by comparing tool output before and after
 4. **Remove from backlog**: Delete the completed item from `docs/orchestrator/research-backlog.md`
 5. **Remove from findings**: Delete the implemented finding from `docs/orchestrator/research-findings.md`
-6. **Update state**: Append to `docs/orchestrator/run_log.md` with timestamp, item ID, actions taken, tool output summary, test status
-7. **Update state.json**: Add item ID to `recommendations.applied` and `recommendations.verified`
+6. **Update state.json**: Add item ID to `recommendations.applied` and `recommendations.verified`
 
 ### Phase 3 — Recursive Loop
 
@@ -85,15 +88,17 @@ After completing a pass through Phase 2, **re-read** `docs/orchestrator/research
 3. Continue looping until one of these exit conditions is met:
    - The backlog contains **zero** Priority 1–3 items (all implemented or removed)
    - All remaining items are **blocked** (marked `⚠️ BLOCKED`) or have unsatisfied dependencies
-   - All remaining items are Priority 4 only (require user approval)
+   - All remaining items are Priority 4 or higher only (require user approval)
 4. Do NOT stop after a single pass if implementable items remain
 
 ### Boundaries
 
 - **DO NOT** implement items from `docs/quality/fix_now.md` — those belong to the debug agent
+- **DO NOT** implement items from `docs/orchestrator/debug-backlog.md` — those belong to the debug agent
+- **DO NOT** implement items from `docs/orchestrator/refactor-backlog.md` — those belong to the refactor agent
 - **DO** remove completed findings from `research-findings.md` — do not leave stale implemented entries
 - **DO NOT** modify `docs/orchestrator/plan.md` — that is the canonical plan; propose amendments if needed
-- **DO NOT** implement Priority 4 items without explicit user approval
+- **DO NOT** implement Priority 4+ items without explicit user approval
 - **DO** cross-reference with `docs/quality/bug_backlog.md` if an item touches a file listed there
 - **DO** stop and ask if an item requires a decision between multiple approaches (options A/B/C pattern)
 - **DO NOT** mark an item as implemented if its test strategy is not satisfied

@@ -35,8 +35,10 @@ You are a quality analyst. You must NOT modify any source code — only artifact
 5. Read `docs/quality/bug_backlog.md` — existing bug list (do not duplicate)
 6. Read `docs/orchestrator/research-findings.md` — research context (if exists)
 7. Read `docs/orchestrator/research-backlog.md` — do not duplicate research items (if exists)
-8. Read `docs/orchestrator/debug-findings.md` — previous audit findings (if exists; remove any completed items, re-audit as needed)
-9. Read `docs/orchestrator/debug-backlog.md` — previous backlog (if exists; extend, don't replace)
+8. Read `docs/orchestrator/refactor-findings.md` — refactor context (if exists; do not duplicate)
+9. Read `docs/orchestrator/refactor-backlog.md` — do not duplicate refactor items (if exists)
+10. Read `docs/orchestrator/debug-findings.md` — previous audit findings (if exists; remove any completed items, re-audit as needed)
+11. Read `docs/orchestrator/debug-backlog.md` — previous backlog (if exists; extend, don't replace)
 
 ---
 
@@ -83,8 +85,8 @@ cd vscode-extension && npx tsc --noEmit 2>&1
 # Lint errors (eslint)
 cd vscode-extension && npx eslint src/ --max-warnings 0 2>&1
 
-# Test failures
-node vscode-extension/out/logger.test.js 2>&1
+# Test failures (run all 5 extension test files)
+make ext-test 2>&1
 ```
 
 Same evidence standard: exact tool, file, line, error code, message.
@@ -327,13 +329,32 @@ Each backlog item must have:
 
 ---
 
+## Session Summary
+
+After writing artifacts, append a session summary block at the bottom of `docs/orchestrator/debug-findings.md`:
+
+```markdown
+## Session Log
+
+### {YYYY-MM-DD}
+- **New findings added**: {count}
+- **Findings removed (completed)**: {count}
+- **Remaining backlog size**: {count} (P1: {n}, P2: {n}, P3: {n}, P4: {n}, P5: {n})
+- **Tool errors found**: ruff={n}, ty={n}, pylance={n}, tsc={n}, eslint={n}, pytest={n}
+- **Convergence**: {increasing|stable|decreasing} — {one-sentence explanation}
+```
+
+This enables tracking convergence across audit cycles. If backlog size is growing rather than shrinking, note which pass is generating new findings and why.
+
+---
+
 ## Constraints
 
 1. **No source code changes** — only write to `docs/orchestrator/debug-findings.md` and `docs/orchestrator/debug-backlog.md`
 2. **Evidence required** — every finding must cite a tool error, line number, or specific code snippet; narrative-only findings are not acceptable
 3. **Remove completed** — when a finding has been fully fixed, exclude it from the artifacts
 4. **No duplication** — check `docs/quality/fix_now.md` and `docs/quality/bug_backlog.md` before adding items; cross-reference with existing IDs
-5. **No duplication with research** — check `docs/orchestrator/research-backlog.md`; reference as `RF-{NNN}` instead of creating `DB-{NNN}`
+5. **No duplication with research or refactor** — check `docs/orchestrator/research-backlog.md` and `docs/orchestrator/refactor-backlog.md`; reference as `RF-{NNN}` or `RT-{NNN}` instead of creating `DB-{NNN}`
 6. **Respect existing plan** — do not contradict `docs/orchestrator/plan.md`
 7. **Do not invent findings** — if a pass produces zero issues, report "no issues found" for that pass
 8. **Acknowledge limits** — include the Limitations section in findings; do not claim exhaustive coverage

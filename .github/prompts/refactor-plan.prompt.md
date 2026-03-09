@@ -532,6 +532,26 @@ Each backlog item must have:
 
 ---
 
+## Session Summary
+
+After writing artifacts, append a session summary block at the bottom of `docs/orchestrator/refactor-findings.md`:
+
+```markdown
+## Session Log
+
+### {YYYY-MM-DD}
+- **New findings added**: {count}
+- **Findings removed (completed)**: {count}
+- **Remaining backlog size**: {count} (P1: {n}, P2: {n}, P3: {n}, P4: {n}, P5: {n}, P6: {n})
+- **Dimensions with findings**: {list of dimensions 1-6 that produced items}
+- **Dead code triaged**: activate={n}, complete={n}, remove={n}
+- **Convergence**: {increasing|stable|decreasing} — {one-sentence explanation}
+```
+
+This enables tracking convergence across refactoring audits. If backlog size is growing rather than shrinking, note which dimension is generating new findings and why.
+
+---
+
 ## Constraints
 
 1. **No source code changes** — only write to `docs/orchestrator/refactor-findings.md` and `docs/orchestrator/refactor-backlog.md`
