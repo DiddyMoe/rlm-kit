@@ -176,6 +176,7 @@ class TestCompactionInLoop:
             mock_lm.completion.return_value = "FINAL(compacted answer)"
             mock_lm.get_usage_summary.return_value = _mock_usage()
             mock_lm.get_last_usage.return_value = _mock_usage()
+            mock_lm.get_total_tokens.return_value = 0
             mock_get_client.return_value = mock_lm
 
             rlm = RLM(

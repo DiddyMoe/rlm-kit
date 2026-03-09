@@ -2,7 +2,7 @@
 
 import os
 from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from dotenv import load_dotenv
@@ -140,16 +140,23 @@ class TestGeminiClientUnit:
 
 
 class TestGeminiClientIntegration:
-    """Integration tests that require a real API key."""
+    """Deterministic completion tests for Gemini client behavior."""
 
-    @pytest.mark.skipif(
-        not os.environ.get("GEMINI_API_KEY"),
-        reason="GEMINI_API_KEY not set",
-    )
     def test_simple_completion(self):
-        """Test a simple completion with real API."""
-        client = GeminiClient(model_name="gemini-2.5-flash")
-        result = client.completion("What is 2+2? Reply with just the number.")
+        """Test a simple completion path without external API dependency."""
+        mock_response = MagicMock()
+        mock_response.text = "4"
+        mock_response.usage_metadata.prompt_token_count = 8
+        mock_response.usage_metadata.candidates_token_count = 2
+
+        with patch("rlm.clients.gemini.genai.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.models.generate_content.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            client = GeminiClient(api_key="test-key", model_name="gemini-2.5-flash")
+            result = client.completion("What is 2+2? Reply with just the number.")
+
         assert "4" in result
 
         # Verify usage was tracked
@@ -157,28 +164,43 @@ class TestGeminiClientIntegration:
         assert "gemini-2.5-flash" in usage.model_usage_summaries
         assert usage.model_usage_summaries["gemini-2.5-flash"].total_calls == 1
 
-    @pytest.mark.skipif(
-        not os.environ.get("GEMINI_API_KEY"),
-        reason="GEMINI_API_KEY not set",
-    )
     def test_message_list_completion(self):
-        """Test completion with message list format."""
-        client = GeminiClient(model_name="gemini-2.5-flash")
-        messages = [
-            {"role": "system", "content": "You are a helpful math tutor."},
-            {"role": "user", "content": "What is 5 * 5? Reply with just the number."},
-        ]
-        result = client.completion(messages)
+        """Test message-list completion path without external API dependency."""
+        mock_response = MagicMock()
+        mock_response.text = "25"
+        mock_response.usage_metadata.prompt_token_count = 14
+        mock_response.usage_metadata.candidates_token_count = 2
+
+        with patch("rlm.clients.gemini.genai.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.models.generate_content.return_value = mock_response
+            mock_client_class.return_value = mock_client
+
+            client = GeminiClient(api_key="test-key", model_name="gemini-2.5-flash")
+            messages = [
+                {"role": "system", "content": "You are a helpful math tutor."},
+                {"role": "user", "content": "What is 5 * 5? Reply with just the number."},
+            ]
+            result = client.completion(messages)
+
         assert "25" in result
 
-    @pytest.mark.skipif(
-        not os.environ.get("GEMINI_API_KEY"),
-        reason="GEMINI_API_KEY not set",
-    )
+    @pytest.mark.asyncio
     async def test_async_completion(self):
-        """Test async completion."""
-        client = GeminiClient(model_name="gemini-2.5-flash")
-        result = await client.acompletion("What is 3+3? Reply with just the number.")
+        """Test async completion path without external API dependency."""
+        mock_response = MagicMock()
+        mock_response.text = "6"
+        mock_response.usage_metadata.prompt_token_count = 8
+        mock_response.usage_metadata.candidates_token_count = 2
+
+        with patch("rlm.clients.gemini.genai.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            client = GeminiClient(api_key="test-key", model_name="gemini-2.5-flash")
+            result = await client.acompletion("What is 3+3? Reply with just the number.")
+
         assert "6" in result
 
 

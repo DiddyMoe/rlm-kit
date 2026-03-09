@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import threading
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -7,6 +8,33 @@ from typing import Any
 import pytest
 
 from rlm.clients.vscode_lm import VsCodeLM
+
+EXPECTED_TS_TO_PYTHON_MESSAGE_TYPES: set[str] = {
+    "configure",
+    "completion",
+    "execute",
+    "llm_response",
+    "cancel",
+    "shutdown",
+    "ping",
+}
+
+EXPECTED_PYTHON_TO_TS_MESSAGE_TYPES: set[str] = {
+    "ready",
+    "configured",
+    "result",
+    "chunk",
+    "exec_result",
+    "progress",
+    "error",
+    "llm_request",
+    "pong",
+}
+
+
+def _extract_send_msg_literal_types(module: ModuleType) -> set[str]:
+    source = Path(module.__file__ or "").read_text(encoding="utf-8")
+    return set(re.findall(r'send_msg\(\s*\{\s*"type"\s*:\s*"([a-z_]+)"', source, re.DOTALL))
 
 
 def _load_backend_module() -> ModuleType:
@@ -25,6 +53,19 @@ def _load_backend_module() -> ModuleType:
 @pytest.fixture(scope="module")
 def backend_module() -> ModuleType:
     return _load_backend_module()
+
+
+def test_protocol_message_type_catalog(backend_module: ModuleType) -> None:
+    source = Path(backend_module.__file__ or "").read_text(encoding="utf-8")
+    observed_inbound_types = set(backend_module.HANDLERS.keys())
+    if 'if msg_type == "llm_response":' in source:
+        observed_inbound_types.add("llm_response")
+
+    assert observed_inbound_types == EXPECTED_TS_TO_PYTHON_MESSAGE_TYPES
+
+    literal_outbound_types = _extract_send_msg_literal_types(backend_module)
+    expected_literal_types = EXPECTED_PYTHON_TO_TS_MESSAGE_TYPES - {"llm_request"}
+    assert literal_outbound_types == expected_literal_types
 
 
 def test_completion_handler_dispatches_and_sends_result(
@@ -184,6 +225,7 @@ def test_llm_request_round_trip_resolves_pending_response(backend_module: Module
     assert len(requests) == 1
     request = requests[0]
     assert request["type"] == "llm_request"
+    assert request["type"] in EXPECTED_PYTHON_TO_TS_MESSAGE_TYPES
     assert request["prompt"] == "hello"
     assert request["model"] == "vscode-lm"
 

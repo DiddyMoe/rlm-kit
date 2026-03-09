@@ -117,7 +117,7 @@ def _extract_text_payload(result_obj: dict[str, object]) -> dict[str, object]:
         text_value = first_item_dict.get("text")
     if not isinstance(text_value, str):
         raise AssertionError("Expected text content to be a string")
-    payload = json.loads(text_value)
+    payload = cast(object, json.loads(text_value))
     if not isinstance(payload, dict):
         raise AssertionError("Expected JSON payload object")
     return cast(dict[str, object], payload)
@@ -128,7 +128,10 @@ def _create_test_client() -> Any:
     test_client_cls = getattr(fastapi_testclient, "TestClient", None)
     if test_client_cls is None:
         raise RuntimeError("fastapi.testclient.TestClient not available")
-    return test_client_cls(gateway_server.app)
+    app = getattr(gateway_server, "app", None)
+    if app is None:
+        raise RuntimeError("gateway_server.app not available")
+    return test_client_cls(app)
 
 
 def test_list_prompts_contains_expected_workflows() -> None:
@@ -170,6 +173,32 @@ def test_list_tools_matches_declared_tool_specs() -> None:
         public_tool_name(str(spec.get("name", ""))) for spec in gateway_server.TOOL_SPECS
     }
     assert published_names == expected_names
+
+
+def test_list_tools_matches_canonical_expected_set() -> None:
+    tools = asyncio.run(gateway_server.handle_list_tools())
+    published_names = {str(_tool_to_dict(tool).get("name", "")) for tool in tools}
+    canonical_tool_name = gateway_server.canonical_tool_name
+
+    canonical_published_names = {canonical_tool_name(name) for name in published_names}
+    expected_canonical_names = {
+        "rlm.session.create",
+        "rlm.session.close",
+        "rlm.complete",
+        "rlm.exec.run",
+        "rlm.fs.list",
+        "rlm.fs.manifest",
+        "rlm.fs.handle.create",
+        "rlm.search.query",
+        "rlm.search.regex",
+        "rlm.span.read",
+        "rlm.chunk.create",
+        "rlm.chunk.get",
+        "rlm.provenance.report",
+        "rlm.roots.set",
+    }
+
+    assert canonical_published_names == expected_canonical_names
 
 
 def test_tool_name_alias_round_trip() -> None:
@@ -353,6 +382,31 @@ def test_complete_fails_fast_without_backend_api_key() -> None:
     assert "plan" not in complete_result
 
 
+def test_complete_returns_elicitation_request_when_enabled_without_backend_api_key() -> None:
+    gateway = RLMMCPGateway(repo_root=str(Path(__file__).resolve().parents[1]))
+    session = gateway.session_create()
+    session_id = session["session_id"]
+
+    env_updates = dict(os.environ)
+    env_updates["RLM_BACKEND"] = "openai"
+    env_updates["OPENAI_API_KEY"] = ""
+
+    with patch.dict(os.environ, env_updates, clear=True):
+        complete_result = gateway.complete(
+            session_id=session_id,
+            task="Summarize this repository",
+            allow_elicitation=True,
+        )
+
+    assert complete_result["success"] is False
+    assert complete_result["error_code"] == "MISSING_API_KEY"
+    assert "elicitation_request" in complete_result
+    elicitation_request = cast(dict[str, Any], complete_result["elicitation_request"])
+    assert isinstance(elicitation_request, dict)
+    assert elicitation_request["field"] == "OPENAI_API_KEY"
+    assert bool(elicitation_request["allowFreeform"]) is True
+
+
 def test_call_tool_includes_structured_content_for_supported_tools() -> None:
     gateway_server.gateway = None
     gateway_server.gateway_instance = RLMMCPGateway(
@@ -513,10 +567,17 @@ def test_tool_text_content_matches_declared_output_schema_keys() -> None:
 
 @pytest.mark.skipif(not gateway_server.HTTP_AVAILABLE, reason="FastAPI not installed")
 def test_streamable_http_routes_registered() -> None:
-    route_map = {
-        route.path: set(getattr(route, "methods", set[str]()))
-        for route in gateway_server.app.routes
-    }
+    route_map: dict[str, set[str]] = {}
+    app = getattr(gateway_server, "app", None)
+    if app is None:
+        raise RuntimeError("gateway_server.app not available")
+
+    for route in app.routes:
+        path = str(getattr(route, "path", ""))
+        methods = set(getattr(route, "methods", set[str]()))
+        if path not in route_map:
+            route_map[path] = set()
+        route_map[path].update(methods)
 
     assert "/mcp/messages" in route_map
     assert "GET" in route_map["/mcp/messages"]
@@ -636,3 +697,72 @@ def test_elicitation_lifecycle_over_http() -> None:
     )
     assert respond_response.status_code == 200
     assert respond_response.json()["result"]["status"] == "accepted"
+
+
+@pytest.mark.skipif(not gateway_server.HTTP_AVAILABLE, reason="FastAPI not installed")
+def test_tools_call_complete_triggers_elicitation_when_api_key_missing() -> None:
+    gateway_server.gateway_instance = RLMMCPGateway(
+        repo_root=str(Path(__file__).resolve().parents[1])
+    )
+    client = _create_test_client()
+    session_id = "missing-key-complete-session"
+
+    create_session_response = client.post(
+        "/mcp/messages",
+        headers={"Mcp-Session-Id": session_id},
+        json={"jsonrpc": "2.0", "id": "s-create", "method": "tools/list", "params": {}},
+    )
+    assert create_session_response.status_code == 200
+
+    session_payload = gateway_server.gateway_instance.session_create()
+    gateway_session_id = str(session_payload["session_id"])
+
+    env_updates = dict(os.environ)
+    env_updates["RLM_BACKEND"] = "openai"
+    env_updates["OPENAI_API_KEY"] = ""
+
+    with patch.dict(os.environ, env_updates, clear=True):
+        complete_response = client.post(
+            "/mcp/messages",
+            headers={"Mcp-Session-Id": session_id},
+            json={
+                "jsonrpc": "2.0",
+                "id": "c1",
+                "method": "tools/call",
+                "params": {
+                    "name": "rlm.complete",
+                    "arguments": {
+                        "session_id": gateway_session_id,
+                        "task": "test task",
+                    },
+                },
+            },
+        )
+
+    assert complete_response.status_code == 200
+    complete_response_payload = cast(dict[str, Any], complete_response.json())
+    complete_payload = cast(dict[str, Any], complete_response_payload["result"])
+    structured = cast(dict[str, Any] | None, complete_payload.get("structuredContent"))
+    assert isinstance(structured, dict)
+    assert structured.get("success") is False
+    assert structured.get("error_code") == "MISSING_API_KEY"
+    elicitation = cast(dict[str, Any] | None, structured.get("elicitation"))
+    assert isinstance(elicitation, dict)
+    assert isinstance(elicitation.get("elicitationId"), str)
+
+    poll_response = client.post(
+        "/mcp/messages",
+        headers={"Mcp-Session-Id": session_id},
+        json={
+            "jsonrpc": "2.0",
+            "id": "poll-complete",
+            "method": "elicitation/poll",
+            "params": {},
+        },
+    )
+    assert poll_response.status_code == 200
+    poll_response_payload = cast(dict[str, Any], poll_response.json())
+    poll_result = cast(dict[str, Any], poll_response_payload["result"])
+    poll_payload = cast(list[dict[str, Any]], poll_result["elicitations"])
+    elicitation_id = cast(str, elicitation["elicitationId"])
+    assert any(cast(str | None, item.get("id")) == elicitation_id for item in poll_payload)

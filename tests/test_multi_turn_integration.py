@@ -29,6 +29,7 @@ def create_mock_lm(responses: list[str]) -> Mock:
         }
     )
     mock.get_last_usage.return_value = mock.get_usage_summary.return_value
+    mock.get_total_tokens.return_value = 0
     return mock
 
 
@@ -207,6 +208,38 @@ class TestMultiTurnPromptAwareness:
                 user_content = " ".join(m.get("content", "") for m in user_messages)
 
                 assert "history" in user_content.lower()
+
+
+class TestFinalDetectionReliability:
+    """Regression tests for FINAL parsing reliability in iterative loops."""
+
+    def test_claude_46_ignores_final_inside_code_fence(self):
+        """Ensure code-fenced FINAL does not terminate early for Claude 4.6 responses."""
+        responses = [
+            """I need another step.
+```python
+FINAL(incorrect)
+```
+Still reasoning.
+""",
+            "FINAL(correct)",
+        ]
+
+        with patch.object(rlm_module, "get_client") as mock_get_client:
+            mock_lm = create_mock_lm(responses)
+            mock_get_client.return_value = mock_lm
+
+            rlm = RLM(
+                RLMConfig(
+                    backend="openai",
+                    backend_kwargs={"model_name": "claude-sonnet-4-6"},
+                )
+            )
+
+            result = rlm.completion("Answer safely")
+
+            assert result.response == "correct"
+            assert mock_lm.completion.call_count == 2
 
 
 class TestMultiTurnCodeExecution:

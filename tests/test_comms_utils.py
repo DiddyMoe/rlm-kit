@@ -5,7 +5,14 @@ from typing import Any
 
 import pytest
 
-from rlm.core.comms_utils import LMRequest, LMResponse, send_lm_request, socket_recv, socket_send
+from rlm.core.comms_utils import (
+    LMRequest,
+    LMResponse,
+    send_lm_request,
+    send_lm_request_batched,
+    socket_recv,
+    socket_send,
+)
 from rlm.core.types import ModelUsageSummary, RLMChatCompletion, UsageSummary
 
 
@@ -161,3 +168,65 @@ class TestSocketWireFormat:
         assert response.error is not None
         assert "Request failed" in response.error
         assert "connection refused" in response.error
+
+    def test_send_lm_request_batched_connection_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attempts = {"count": 0}
+
+        def _fail_socket_request(*_args: object, **_kwargs: object) -> dict[str, Any]:
+            attempts["count"] += 1
+            raise ConnectionRefusedError("connection refused")
+
+        def _no_sleep(_delay: float) -> None:
+            return None
+
+        monkeypatch.setattr("rlm.core.comms_utils.socket_request", _fail_socket_request)
+        monkeypatch.setattr("rlm.core.retry.time.sleep", _no_sleep)
+
+        prompts: list[str | list[dict[str, Any]]] = ["hello", "world"]
+        responses = send_lm_request_batched(("127.0.0.1", 9999), prompts)
+
+        assert attempts["count"] == 3
+        assert len(responses) == 2
+        assert all(response.success is False for response in responses)
+        assert all(response.error is not None for response in responses)
+        assert all("Request failed" in str(response.error) for response in responses)
+        assert all("connection refused" in str(response.error) for response in responses)
+
+    def test_send_lm_request_batched_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[dict[str, Any]] = []
+
+        def _mock_socket_request(
+            _address: tuple[str, int], data: dict[str, Any], _timeout: int = 300
+        ) -> dict[str, Any]:
+            calls.append(data)
+            completions = [_make_completion("one"), _make_completion("two")]
+            return LMResponse.batched_success_response(completions).to_dict()
+
+        monkeypatch.setattr("rlm.core.comms_utils.socket_request", _mock_socket_request)
+
+        prompts: list[str | list[dict[str, Any]]] = [
+            "hello",
+            [{"role": "user", "content": "world"}],
+        ]
+        responses = send_lm_request_batched(
+            ("127.0.0.1", 9999),
+            prompts,
+            model="gpt-test",
+            depth=2,
+        )
+
+        assert len(calls) == 1
+        request = LMRequest.from_dict(calls[0])
+        assert request.prompts == prompts
+        assert request.model == "gpt-test"
+        assert request.depth == 2
+        assert request.is_batched is True
+
+        assert len(responses) == 2
+        assert all(response.success for response in responses)
+        assert responses[0].chat_completion is not None
+        assert responses[1].chat_completion is not None
+        assert responses[0].chat_completion.response == "one"
+        assert responses[1].chat_completion.response == "two"

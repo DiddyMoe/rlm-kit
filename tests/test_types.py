@@ -59,12 +59,18 @@ class TestModelUsageSummary:
 
     def test_to_dict(self):
         summary = ModelUsageSummary(
-            total_calls=10, total_input_tokens=1000, total_output_tokens=500
+            total_calls=10,
+            total_input_tokens=1000,
+            total_output_tokens=500,
+            cache_creation_input_tokens=40,
+            cache_read_input_tokens=20,
         )
         d = summary.to_dict()
         assert d["total_calls"] == 10
         assert d["total_input_tokens"] == 1000
         assert d["total_output_tokens"] == 500
+        assert d["cache_creation_input_tokens"] == 40
+        assert d["cache_read_input_tokens"] == 20
 
     def test_from_dict(self):
         data = {
@@ -76,12 +82,31 @@ class TestModelUsageSummary:
         assert summary.total_calls == 5
         assert summary.total_input_tokens == 200
         assert summary.total_output_tokens == 100
+        assert summary.cache_creation_input_tokens == 0
+        assert summary.cache_read_input_tokens == 0
 
     def test_from_dict_missing_keys_defaults_to_zero(self):
         summary = ModelUsageSummary.from_dict({})
         assert summary.total_calls == 0
         assert summary.total_input_tokens == 0
         assert summary.total_output_tokens == 0
+
+    def test_roundtrip(self):
+        original = ModelUsageSummary(
+            total_calls=10,
+            total_input_tokens=1000,
+            total_output_tokens=500,
+            cache_creation_input_tokens=33,
+            cache_read_input_tokens=11,
+        )
+
+        restored = ModelUsageSummary.from_dict(original.to_dict())
+
+        assert restored.total_calls == original.total_calls
+        assert restored.total_input_tokens == original.total_input_tokens
+        assert restored.total_output_tokens == original.total_output_tokens
+        assert restored.cache_creation_input_tokens == original.cache_creation_input_tokens
+        assert restored.cache_read_input_tokens == original.cache_read_input_tokens
 
 
 class TestUsageSummary:
@@ -108,6 +133,35 @@ class TestUsageSummary:
         summary = UsageSummary.from_dict(data)
         assert "gpt-4" in summary.model_usage_summaries
         assert summary.model_usage_summaries["gpt-4"].total_calls == 2
+
+    def test_roundtrip(self):
+        original = UsageSummary(
+            model_usage_summaries={
+                "gpt-4o-mini": ModelUsageSummary(
+                    total_calls=3,
+                    total_input_tokens=150,
+                    total_output_tokens=75,
+                )
+            }
+        )
+
+        restored = UsageSummary.from_dict(original.to_dict())
+
+        assert set(restored.model_usage_summaries.keys()) == set(
+            original.model_usage_summaries.keys()
+        )
+        assert (
+            restored.model_usage_summaries["gpt-4o-mini"].total_calls
+            == original.model_usage_summaries["gpt-4o-mini"].total_calls
+        )
+        assert (
+            restored.model_usage_summaries["gpt-4o-mini"].total_input_tokens
+            == original.model_usage_summaries["gpt-4o-mini"].total_input_tokens
+        )
+        assert (
+            restored.model_usage_summaries["gpt-4o-mini"].total_output_tokens
+            == original.model_usage_summaries["gpt-4o-mini"].total_output_tokens
+        )
 
 
 class TestREPLResult:

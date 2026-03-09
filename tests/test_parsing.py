@@ -225,6 +225,62 @@ Need more work.
         result = find_final_answer(text)
         assert result is None
 
+    def test_hallucinated_final_in_prose_with_code_blocks_is_ignored(self):
+        """RF-096: Claude 4.6 hallucination guard — text FINAL() skipped when code blocks present."""
+        text = """The answer is FINAL("hello world")
+```repl
+x = 1 + 2
+print(x)
+```
+"""
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_hallucinated_final_standalone_line_with_code_blocks_is_ignored(self):
+        """RF-096: Even a well-formed FINAL() on its own line is skipped when code blocks exist."""
+        text = """Let me compute this.
+```repl
+result = 42
+```
+FINAL(42)
+"""
+        result = find_final_answer(text)
+        assert result is None
+
+    def test_final_without_code_blocks_still_works(self):
+        """RF-096: FINAL() in a response with no code blocks should still be detected."""
+        text = "After thinking about it:\nFINAL(the answer is 42)"
+        result = find_final_answer(text)
+        assert result == "the answer is 42"
+
+    def test_final_var_with_code_blocks_still_works(self):
+        """RF-096: FINAL_VAR() should still work even when code blocks are present."""
+        text = """Computed the value.
+```repl
+result = 42
+```
+FINAL_VAR(result)
+"""
+        mock_env = Mock()
+        mock_env.execute_code.return_value = REPLResult(stdout="42", stderr="", locals={})
+        result = find_final_answer(text, environment=mock_env)
+        assert result == "42"
+
+    def test_final_callable_with_code_blocks_via_environment(self):
+        """RF-096: FINAL() callable in REPL should work via consume_final_answer path."""
+        text = """Computed via code.
+```repl
+FINAL(42)
+```
+"""
+        env = LocalREPL()
+        try:
+            env.execute_code("FINAL(42)")
+            result = find_final_answer(text, environment=env)
+            assert result == "42"
+        finally:
+            env.cleanup()
+
     def test_malformed_final_unclosed_parenthesis_returns_none(self):
         text = "Still thinking...\nFINAL(unclosed"
         result = find_final_answer(text)
@@ -257,6 +313,24 @@ Need more work.
                 "No FINAL marker in assistant text.", environment=env
             )
             assert result_after_consume is None
+        finally:
+            env.cleanup()
+
+    def test_final_callable_survives_user_overwrite(self):
+        """RF-097: FINAL is in RESERVED_TOOL_NAMES, so user code cannot permanently overwrite it."""
+        from rlm.environments.base_env import RESERVED_TOOL_NAMES
+
+        assert "FINAL" in RESERVED_TOOL_NAMES
+        assert "FINAL_VAR" in RESERVED_TOOL_NAMES
+
+        env = LocalREPL()
+        try:
+            # User code overwrites FINAL — but _restore_scaffold should bring it back
+            env.execute_code("FINAL = 'overwritten'")
+            # Now FINAL should be restored for the next execution
+            env.execute_code("FINAL(99)")
+            result = find_final_answer("No text FINAL.", environment=env)
+            assert result == "99"
         finally:
             env.cleanup()
 
