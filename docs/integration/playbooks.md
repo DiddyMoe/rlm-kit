@@ -36,6 +36,11 @@ Step-by-step usage from VS Code Agent Chat and Cursor Agent Chat. Single doc, tw
 
 This repo includes a workspace MCP config at `.vscode/mcp.json` that registers `rlmGateway` in stdio mode. If needed, you can also add the same server in user configuration. See [ide_matrix.md](ide_matrix.md) and [ide_touchpoints.md](ide_touchpoints.md).
 
+Recommended additions for local setup:
+- Add `envFile: "${workspaceFolder}/.env"` so API keys are read from `.env` instead of hardcoding `env` entries.
+- Group tools with `toolSets` for better tool picker UX (e.g. retrieval, execution, session).
+- Optional: enable auto-start for MCP servers with VS Code setting `"chat.mcp.autoStart": "always"`.
+
 One-click install URL:
 
 - `vscode:mcp/install?%7B%22name%22%3A%22rlmGateway%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22uv%22%2C%22args%22%3A%5B%22run%22%2C%22python%22%2C%22scripts%2Frlm_mcp_gateway.py%22%5D%2C%22cwd%22%3A%22%24%7BworkspaceFolder%7D%22%2C%22env%22%3A%7B%22PYTHONPATH%22%3A%22%24%7BworkspaceFolder%7D%22%7D%7D`
@@ -66,6 +71,7 @@ For contributors, `.vscode/mcp.json` includes MCP dev mode with watch (`rlm/mcp_
       "command": "uv",
       "args": ["run", "--extra", "mcp", "python", "scripts/rlm_mcp_gateway.py"],
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "env": { "PYTHONPATH": "${workspaceFolder}" }
     }
   }
@@ -73,6 +79,8 @@ For contributors, `.vscode/mcp.json` includes MCP dev mode with watch (`rlm/mcp_
 ```
 
 3. Restart Cursor or reload MCP so it picks up the server.
+
+`envFile` is supported in Cursor MCP stdio config and is the preferred way to provide provider API keys for `rlm_complete`.
 
 ### Using RLM in Cursor Agent
 
