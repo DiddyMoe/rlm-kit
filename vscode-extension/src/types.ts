@@ -30,6 +30,8 @@ export type ClientBackend =
   | "anthropic"
   | "azure_openai"
   | "gemini"
+  | "groq"
+  | "cerebras"
   | "ollama"
   | "vscode_lm";
 

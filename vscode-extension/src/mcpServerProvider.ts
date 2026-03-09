@@ -5,6 +5,7 @@ const PROVIDER_ID = "rlm-chat.rlmMcpServer";
 const SERVER_LABEL = "rlm-gateway";
 const SERVER_COMMAND = "uv";
 const SERVER_ARGS = ["run", "python", "scripts/rlm_mcp_gateway.py"];
+const ICON_PATH = "vscode-extension/media/rlm-icon.svg";
 
 type LmApiWithMcpProvider = {
   registerMcpServerDefinitionProvider(
@@ -50,6 +51,8 @@ export function registerRlmMcpServerDefinitionProvider(context: vscode.Extension
         cwd: vscode.Uri.file(workspaceRoot),
         env: {},
       };
+      const iconUri = vscode.Uri.file(`${workspaceRoot}/${ICON_PATH}`).toString();
+      (definition as unknown as { icons?: Array<{ src: string }> }).icons = [{ src: iconUri }];
       return [definition];
     },
   };

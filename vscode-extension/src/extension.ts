@@ -38,6 +38,8 @@ const KNOWN_BACKENDS: readonly ClientBackend[] = [
   "anthropic",
   "azure_openai",
   "gemini",
+  "groq",
+  "cerebras",
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {

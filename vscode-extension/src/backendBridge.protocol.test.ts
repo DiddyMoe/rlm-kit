@@ -1,6 +1,29 @@
 import * as assert from "assert";
 
 import { BackendBridge } from "./backendBridge";
+import type { InboundMessage, OutboundMessage } from "./types";
+
+const outboundCatalogRecord: Record<OutboundMessage["type"], true> = {
+  configure: true,
+  completion: true,
+  execute: true,
+  llm_response: true,
+  cancel: true,
+  shutdown: true,
+  ping: true,
+};
+
+const inboundCatalogRecord: Record<InboundMessage["type"], true> = {
+  ready: true,
+  configured: true,
+  result: true,
+  chunk: true,
+  exec_result: true,
+  progress: true,
+  error: true,
+  llm_request: true,
+  pong: true,
+};
 
 type PendingCompletionMap = Map<
   string,
@@ -29,6 +52,32 @@ type BackendBridgeInternals = {
 
 function asInternals(bridge: BackendBridge): BackendBridgeInternals {
   return bridge as unknown as BackendBridgeInternals;
+}
+
+function testProtocolMessageTypeCatalogs(): void {
+  const expectedOutbound = new Set<string>([
+    "configure",
+    "completion",
+    "execute",
+    "llm_response",
+    "cancel",
+    "shutdown",
+    "ping",
+  ]);
+  const expectedInbound = new Set<string>([
+    "ready",
+    "configured",
+    "result",
+    "chunk",
+    "exec_result",
+    "progress",
+    "error",
+    "llm_request",
+    "pong",
+  ]);
+
+  assert.deepStrictEqual(new Set(Object.keys(outboundCatalogRecord)), expectedOutbound);
+  assert.deepStrictEqual(new Set(Object.keys(inboundCatalogRecord)), expectedInbound);
 }
 
 function testReadyMessageResolvesBridge(): void {
@@ -111,6 +160,7 @@ function testErrorMessageRejectsPendingExec(): void {
 }
 
 function runAllTests(): void {
+  testProtocolMessageTypeCatalogs();
   testReadyMessageResolvesBridge();
   testFragmentedStdoutChunkParsesJsonLine();
   testResultMessageResolvesPendingCompletion();
