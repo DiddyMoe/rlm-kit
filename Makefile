@@ -38,7 +38,7 @@ install:
 	uv sync
 
 install-dev:
-	uv sync --group dev --group test --extra mcp
+	uv sync --group dev --group test --extra mcp --extra modal --extra e2b --extra prime
 
 install-modal:
 	uv pip install -e ".[modal]"

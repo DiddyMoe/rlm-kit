@@ -11,8 +11,36 @@
         "scripts/rlm_mcp_gateway.py"
       ],
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
+      },
+      "icons": [
+        {
+          "src": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22128%22%20height%3D%22128%22%20viewBox%3D%220%200%20128%20128%22%20fill%3D%22none%22%3E%3Crect%20x%3D%228%22%20y%3D%228%22%20width%3D%22112%22%20height%3D%22112%22%20rx%3D%2220%22%20fill%3D%22%231A1B26%22/%3E%3Cpath%20d%3D%22M34%2094V34H62C77.464%2034%2088%2043.58%2088%2058C88%2072.42%2077.464%2082%2062%2082H46V94H34ZM46%2070H61.2C69.216%2070%2075%2064.86%2075%2058C75%2051.14%2069.216%2046%2061.2%2046H46V70Z%22%20fill%3D%22%237AA2F7%22/%3E%3Cpath%20d%3D%22M90%2094V34H102V94H90Z%22%20fill%3D%22%237DCFFF%22/%3E%3C/svg%3E"
+        }
+      ],
+      "toolSets": {
+        "retrieval": [
+          "rlm.fs.list",
+          "rlm.fs.manifest",
+          "rlm.fs.handle.create",
+          "rlm.span.read",
+          "rlm.chunk.create",
+          "rlm.chunk.get",
+          "rlm.search.query",
+          "rlm.search.regex"
+        ],
+        "execution": [
+          "rlm.exec.run",
+          "rlm.complete",
+          "rlm.provenance.report"
+        ],
+        "session": [
+          "rlm.session.create",
+          "rlm.session.close",
+          "rlm.roots.set"
+        ]
       },
       "dev": {
         "watch": "rlm/mcp_gateway/**/*.py",
