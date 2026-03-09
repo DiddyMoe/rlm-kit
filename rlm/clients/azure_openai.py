@@ -1,6 +1,6 @@
 import os
 from collections import defaultdict
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import openai
 from dotenv import load_dotenv
@@ -14,6 +14,34 @@ load_dotenv()
 
 # Load API key from environment variable
 DEFAULT_AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+
+
+class AzureOpenAICompletionsClient(Protocol):
+    def create(self, *args: Any, **kwargs: Any) -> ChatCompletion: ...
+
+
+class AsyncAzureOpenAICompletionsClient(Protocol):
+    async def create(self, *args: Any, **kwargs: Any) -> ChatCompletion: ...
+
+
+class AzureOpenAIChatClient(Protocol):
+    @property
+    def completions(self) -> AzureOpenAICompletionsClient: ...
+
+
+class AsyncAzureOpenAIChatClient(Protocol):
+    @property
+    def completions(self) -> AsyncAzureOpenAICompletionsClient: ...
+
+
+class AzureOpenAIClientProtocol(Protocol):
+    @property
+    def chat(self) -> AzureOpenAIChatClient: ...
+
+
+class AsyncAzureOpenAIClientProtocol(Protocol):
+    @property
+    def chat(self) -> AsyncAzureOpenAIChatClient: ...
 
 
 class AzureOpenAIClient(BaseLM):
@@ -64,14 +92,14 @@ class AzureOpenAIClient(BaseLM):
         resolved_api_version = self._resolve_api_version(api_version)
         resolved_azure_deployment = self._resolve_azure_deployment(azure_deployment)
 
-        self.client = openai.AzureOpenAI(
+        self.client: AzureOpenAIClientProtocol = openai.AzureOpenAI(
             api_key=resolved_api_key,
             azure_endpoint=resolved_azure_endpoint,
             api_version=resolved_api_version,
             azure_deployment=resolved_azure_deployment,
             timeout=timeout or openai.NOT_GIVEN,
         )
-        self.async_client = openai.AsyncAzureOpenAI(
+        self.async_client: AsyncAzureOpenAIClientProtocol = openai.AsyncAzureOpenAI(
             api_key=resolved_api_key,
             azure_endpoint=resolved_azure_endpoint,
             api_version=resolved_api_version,

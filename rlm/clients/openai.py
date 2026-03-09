@@ -2,7 +2,7 @@ import json
 import os
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import openai
 from dotenv import load_dotenv
@@ -21,6 +21,37 @@ DEFAULT_VERCEL_API_KEY = os.getenv("AI_GATEWAY_API_KEY")
 DEFAULT_PRIME_INTELLECT_BASE_URL = "https://api.pinference.ai/api/v1/"
 
 
+class OpenAICompletionsClient(Protocol):
+    def create(self, *args: Any, **kwargs: Any) -> ChatCompletion | Any: ...
+
+
+class AsyncOpenAICompletionsClient(Protocol):
+    async def create(self, *args: Any, **kwargs: Any) -> ChatCompletion: ...
+
+
+class OpenAIChatClient(Protocol):
+    @property
+    def completions(self) -> OpenAICompletionsClient: ...
+
+
+class AsyncOpenAIChatClient(Protocol):
+    @property
+    def completions(self) -> AsyncOpenAICompletionsClient: ...
+
+
+class OpenAIClientProtocol(Protocol):
+    @property
+    def chat(self) -> OpenAIChatClient: ...
+
+    @property
+    def base_url(self) -> Any: ...
+
+
+class AsyncOpenAIClientProtocol(Protocol):
+    @property
+    def chat(self) -> AsyncOpenAIChatClient: ...
+
+
 class OpenAIClient(BaseLM):
     """
     LM Client for running models with the OpenAI API. Works with vLLM as well.
@@ -36,20 +67,20 @@ class OpenAIClient(BaseLM):
     ) -> None:
         resolved_model_name = model_name or "gpt-4o-mini"
         super().__init__(model_name=resolved_model_name, timeout=timeout)
+        self.prefix_cache_enabled = bool(kwargs.pop("prefix_cache_enabled", False))
         self.kwargs = kwargs
 
         resolved_api_key = self._resolve_api_key(api_key=api_key, base_url=base_url)
         self._validate_hosted_api_key(api_key=resolved_api_key, base_url=base_url)
 
         # For vLLM, set base_url to local vLLM server address.
-        self.client = openai.OpenAI(
+        self.client: OpenAIClientProtocol = openai.OpenAI(
             api_key=resolved_api_key, base_url=base_url, timeout=timeout or openai.NOT_GIVEN
         )
-        self.async_client = openai.AsyncOpenAI(
+        self.async_client: AsyncOpenAIClientProtocol = openai.AsyncOpenAI(
             api_key=resolved_api_key, base_url=base_url, timeout=timeout or openai.NOT_GIVEN
         )
         self.model_name = resolved_model_name
-        self.prefix_cache_enabled = bool(self.kwargs.get("prefix_cache_enabled", False))
         self._prefix_messages_cache: dict[str, list[ChatCompletionMessageParam]] = {}
 
         # Per-model usage tracking
@@ -91,11 +122,14 @@ class OpenAIClient(BaseLM):
         if self.client.base_url == DEFAULT_PRIME_INTELLECT_BASE_URL:
             extra_body["usage"] = {"include": True}
 
-        response = self.client.chat.completions.create(
-            model=model, messages=messages, extra_body=extra_body
+        request_kwargs = self._build_request_kwargs(extra_body)
+
+        response = cast(
+            ChatCompletion,
+            self.client.chat.completions.create(model=model, messages=messages, **request_kwargs),
         )
         self._track_cost(response, model)
-        content = response.choices[0].message.content
+        content: str | None = response.choices[0].message.content
         if content is None:
             raise ValueError("OpenAI response did not include message content.")
         return content
@@ -122,6 +156,7 @@ class OpenAIClient(BaseLM):
             messages=messages,
             stream=True,
             stream_options={"include_usage": True},
+            **self.kwargs,
         )
 
         for chunk in stream:
@@ -177,11 +212,13 @@ class OpenAIClient(BaseLM):
         if self.client.base_url == DEFAULT_PRIME_INTELLECT_BASE_URL:
             extra_body["usage"] = {"include": True}
 
+        request_kwargs = self._build_request_kwargs(extra_body)
+
         response = await self.async_client.chat.completions.create(
-            model=model, messages=messages, extra_body=extra_body
+            model=model, messages=messages, **request_kwargs
         )
         self._track_cost(response, model)
-        content = response.choices[0].message.content
+        content: str | None = response.choices[0].message.content
         if content is None:
             raise ValueError("OpenAI response did not include message content.")
         return content
@@ -221,6 +258,21 @@ class OpenAIClient(BaseLM):
                 del self._prefix_messages_cache[oldest_key]
 
         return [*cached_prefix, cast(ChatCompletionMessageParam, prompt[-1])]
+
+    def _build_request_kwargs(self, extra_body: dict[str, Any]) -> dict[str, Any]:
+        request_kwargs = dict(self.kwargs)
+        if not extra_body:
+            return request_kwargs
+
+        existing_extra_body = request_kwargs.get("extra_body")
+        if isinstance(existing_extra_body, dict):
+            existing_extra_body_dict = cast(dict[str, Any], existing_extra_body)
+            merged_extra_body: dict[str, Any] = {**existing_extra_body_dict, **extra_body}
+        else:
+            merged_extra_body = dict(extra_body)
+
+        request_kwargs["extra_body"] = merged_extra_body
+        return request_kwargs
 
     def _track_cost(self, response: ChatCompletion, model: str) -> None:
         self.model_call_counts[model] += 1
