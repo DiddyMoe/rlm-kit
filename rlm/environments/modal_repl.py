@@ -217,9 +217,16 @@ class ModalREPL(IsolatedEnv):
 
         if config.context_payload is not None:
             self.load_context(config.context_payload)
-
         if config.setup_code:
             self.execute_code(config.setup_code)
+
+    @property
+    def calls_lock(self) -> threading.Lock:
+        return self._calls_lock
+
+    @calls_lock.setter
+    def calls_lock(self, value: threading.Lock) -> None:
+        self._calls_lock = value
 
     def setup(self) -> None:
         """Create the Modal app, sandbox, broker, and start polling."""

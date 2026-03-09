@@ -29,6 +29,7 @@ RESERVED_TOOL_NAMES: frozenset[str] = frozenset(
         "history",
         "llm_query",
         "llm_query_batched",
+        "FINAL",
         "FINAL_VAR",
         "SHOW_VARS",
     }

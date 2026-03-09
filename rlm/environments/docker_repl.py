@@ -202,6 +202,14 @@ class DockerREPL(NonIsolatedEnv):
         if config.setup_code:
             self.execute_code(config.setup_code)
 
+    @property
+    def calls_lock(self) -> threading.Lock:
+        return self._calls_lock
+
+    @calls_lock.setter
+    def calls_lock(self, value: threading.Lock) -> None:
+        self._calls_lock = value
+
     def setup(self) -> None:
         """Start the proxy server and Docker container."""
         # Start LLM proxy server

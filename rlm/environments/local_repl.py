@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
 from types import TracebackType
 from typing import Any, cast
@@ -55,6 +56,8 @@ class LocalREPL(NonIsolatedEnv):
         persistent: bool = False,
         depth: int = 1,
         recursive_rlm_config: dict[str, Any] | None = None,
+        recursive_subcall_fn: Callable[[str | dict[str, Any], str | None], RLMChatCompletion]
+        | None = None,
         custom_tools: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
@@ -68,6 +71,7 @@ class LocalREPL(NonIsolatedEnv):
         self._history_count: int = 0
         self.execution_timeout_seconds = execution_timeout_seconds
         self.recursive_rlm_config = copy.deepcopy(recursive_rlm_config)
+        self.recursive_subcall_fn = recursive_subcall_fn
         self.custom_tools = custom_tools
 
         # Setup globals, locals, and modules in environment.
@@ -115,6 +119,10 @@ class LocalREPL(NonIsolatedEnv):
             self._scaffold_backup.update(
                 {name: self.globals[name] for name in self.custom_tools if name in self.globals}
             )
+
+    @property
+    def pending_llm_calls(self) -> list[RLMChatCompletion]:
+        return self._pending_llm_calls
 
     def _final_var(self, variable_name: str) -> str:
         """Return the value of a variable as a final answer."""
@@ -192,6 +200,9 @@ class LocalREPL(NonIsolatedEnv):
         except Exception as e:
             return f"Error: LM query failed - {e}"
 
+    def llm_query(self, prompt: str, model: str | None = None) -> str:
+        return self._llm_query(prompt, model)
+
     def _llm_query_batched(self, prompts: list[str], model: str | None = None) -> list[str]:
         """Query the LM with multiple prompts concurrently.
 
@@ -242,6 +253,8 @@ class LocalREPL(NonIsolatedEnv):
             return False
         if self.recursive_rlm_config is None:
             return False
+        if not bool(self.recursive_rlm_config.get("enable_recursive_subcalls", False)):
+            return False
         max_depth_value = self.recursive_rlm_config.get("max_depth")
         if not isinstance(max_depth_value, int):
             return False
@@ -251,6 +264,12 @@ class LocalREPL(NonIsolatedEnv):
         """Run a recursive RLM sub-call when depth and config allow it."""
         if not self._should_use_recursive_sub_rlm(model):
             return None
+
+        if self.recursive_subcall_fn is not None:
+            try:
+                return self.recursive_subcall_fn(prompt, None)
+            except Exception:
+                return None
 
         try:
             from rlm.core.rlm import RLM, RLMConfig

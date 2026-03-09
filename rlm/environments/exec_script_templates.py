@@ -64,7 +64,7 @@ def load_state():
         try:
             with open(STATE_FILE, "rb") as f:
                 return dill.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -76,7 +76,7 @@ def save_state(state):
         try:
             dill.dumps(v)
             clean_state[k] = v
-        except:
+        except Exception:
             pass
     with open(STATE_FILE, "wb") as f:
         dill.dump(clean_state, f)
@@ -88,7 +88,7 @@ def serialize_locals(state):
             continue
         try:
             result[k] = repr(v)
-        except:
+        except Exception:
             result[k] = f"<{type(v).__name__}>"
     return result
 
@@ -186,7 +186,7 @@ def load_state():
         try:
             with open(STATE, "rb") as f:
                 return dill.load(f)
-        except:
+        except Exception:
             pass
     return {}
 
@@ -195,7 +195,7 @@ def save_state(s):
     for k in list(clean.keys()):
         try:
             dill.dumps(clean[k])
-        except:
+        except Exception:
             del clean[k]
     with open(STATE, "wb") as f:
         dill.dump(clean, f)
@@ -230,7 +230,7 @@ try:
     for k, v in combined.items():
         if k not in _globals and not k.startswith("_"):
             _locals[k] = v
-except:
+except Exception:
     traceback.print_exc(file=stderr_buf)
 finally:
     sys.stdout, sys.stderr = old_stdout, old_stderr

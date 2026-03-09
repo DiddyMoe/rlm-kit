@@ -212,7 +212,7 @@ def load_state():
         try:
             with open(STATE_FILE, "rb") as f:
                 return dill.load(f)
-        except:
+        except Exception:
             pass
     return {{}}
 
@@ -224,7 +224,7 @@ def save_state(state):
         try:
             dill.dumps(v)
             clean_state[k] = v
-        except:
+        except Exception:
             pass
     with open(STATE_FILE, "wb") as f:
         dill.dump(clean_state, f)
@@ -236,7 +236,7 @@ def serialize_locals(state):
             continue
         try:
             result[k] = repr(v)
-        except:
+        except Exception:
             result[k] = f"<{{type(v).__name__}}>"
     return result
 
@@ -342,9 +342,16 @@ class E2BREPL(IsolatedEnv):
 
         if config.context_payload is not None:
             self.load_context(config.context_payload)
-
         if config.setup_code:
             self.execute_code(config.setup_code)
+
+    @property
+    def calls_lock(self) -> threading.Lock:
+        return self._calls_lock
+
+    @calls_lock.setter
+    def calls_lock(self, value: threading.Lock) -> None:
+        self._calls_lock = value
 
     def setup(self) -> None:
         """Create the E2B sandbox, broker, and start polling."""
