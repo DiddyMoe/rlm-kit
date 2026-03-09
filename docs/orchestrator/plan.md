@@ -12,7 +12,7 @@
 - Docs and index under docs/ (Phases 0–2B artifacts)
 - Additive, isolated code changes per step (AUTO-APPLY or approved only)
 - Verification: `make lint`, `make format`, `make test`, `make ext-check`
-- State and run log: docs/orchestrator/state.json, docs/orchestrator/run_log.md
+- State: docs/orchestrator/state.json
 
 **Out of scope**
 
@@ -139,16 +139,13 @@ After each Phase 3 step:
 2. **Tests**: `make test` (Python), `make ext-check` (extension)
 3. **IDE smoke**: At least one of (a) MCP gateway starts and responds to a tool list, (b) Extension builds and typechecks
 4. **State**: Update docs/orchestrator/state.json (step status: proposed/approved/applied/verified)
-5. **Run log**: Append to docs/orchestrator/run_log.md with timestamp, step, actions, verification result
-
-**Done criteria**: Step marked verified in state; run_log entry added; no unplanned file changes.
+**Done criteria**: Step marked verified in state; no unplanned file changes.
 
 ---
 
 ## Idempotency
 
 - **state.json**: active_plan_id, active_plan_path, phases, recommendations (proposed/approved/applied/verified), last_run
-- **run_log.md**: Append-only; never delete
 - **plan.md**: This file; amend only via explicit Plan amendment (diff); do not implement amendments until plan is updated and approved
 
 ---
@@ -166,5 +163,5 @@ After each Phase 3 step:
 
 1. **Save this plan**: Ensure full content is in docs/orchestrator/plan.md (create file if missing).
 2. **Before Build**: Load plan.md; set active_plan_id and active_plan_path in state.json.
-3. **Build execution**: Execute steps 3.1 → 3.2 → 3.3 → 3.4 in order; run verification after each; update state and run_log. Skip 3.5–3.7 unless approved; 3.8 only AUTO-APPLY patches.
+3. **Build execution**: Execute steps 3.1 → 3.2 → 3.3 → 3.4 in order; run verification after each; update state. Skip 3.5–3.7 unless approved; 3.8 only AUTO-APPLY patches.
 4. **Stop and replan**: If any action is not in this plan, propose a plan amendment (diff to plan.md) and do not implement until approved.

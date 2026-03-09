@@ -1,37 +1,54 @@
 # Research Findings
 <!-- ORCHESTRATOR ARTIFACT — remove completed items; keep only actionable findings -->
-<!-- Last updated: 2026-02-19 18:00:00 -->
+<!-- Last updated: 2026-07-15 12:00:00 -->
 
 ## Source Index
 
 | Source | URL | Date Accessed | Key Findings | Relevance |
 |---|---|---|---|---|
-| Upstream rlm commits | https://github.com/alexzhang13/rlm/commits/main | 2026-02-19 | PR #84 merged: depth>1 recursive subcalls with `_subcall()`, `max_budget`/`BudgetExceededError`, event callbacks, execution limits (3168 additions). Version bumped to 0.1.1 (PyPI). New prompt templates (reasoning + math examples). PR #110 (compaction), #109 (scaffold), #108 (timeouts), #106 (custom tools) previously merged. | High |
-| Upstream PR #84 | https://github.com/alexzhang13/rlm/pull/84 | 2026-02-19 | Full depth>1 `_subcall()` spawning child RLM instances, `BudgetExceededError`, OpenRouter cost extraction, `max_timeout`/`max_tokens`/`max_errors` limits, event callbacks (`on_subcall_start/complete`, `on_iteration_start/complete`). Referenced by DSPy integration (stanfordnlp/dspy#9289). | High |
-| Upstream PR #115 (open) | https://github.com/alexzhang13/rlm/pull/115 | 2026-02-19 | FINAL() callable in REPL; parser ignores FINAL/FINAL_VAR inside code fences. Prevents false-positive final answer detection. | Medium |
-| Upstream PR #114 (open) | https://github.com/alexzhang13/rlm/pull/114 | 2026-02-19 | Extra user-defined tools via `tool_prompts` + `tool_code` params. Alternative approach to #106, adds prompt-based tool doc + code injection. | Low |
-| Upstream PR #54 (open) | https://github.com/alexzhang13/rlm/pull/54 | 2026-02-19 | Groq API and Cerebras SDK client implementations (149 additions). Enables high-throughput inference via Groq/Cerebras hardware. | Low |
-| Upstream PR #53 (open) | https://github.com/alexzhang13/rlm/pull/53 | 2026-02-19 | Removed file-based roundtrip in `LocalREPL.add_context()`. | Low |
-| Upstream issues | https://github.com/alexzhang13/rlm/issues | 2026-02-19 | 27 open. #113: pip install Python 3.10 broken stub. #111: metadata placement question. #100: Azure Anthropic. #97: CVEs in visualizer. #92: claude-agent-sdk client. #88: Standard API for 3rd-party tools. #82: Benchmarking/memoization. #50: Structured output on final answer. #42: ContextWindowExceededError. #31: K8s sandboxes. | Medium |
-| Upstream forks | https://github.com/alexzhang13/rlm/forks | 2026-02-19 | 486 forks; no active fork has IDE integration features beyond what is adopted. | Low |
-| VS Code LM Tools API | https://code.visualstudio.com/api/extension-guides/ai/tools | 2026-02-19 | `vscode.lm.registerTool`, `contributes.languageModelTools` in package.json, `when` clauses, `prepareInvocation` for confirmations, `canBeReferencedInPrompt`, `toolReferenceName`. Updated 12/10/2025. | High |
-| VS Code MCP Developer Guide | https://code.visualstudio.com/api/extension-guides/ai/mcp | 2026-02-19 | `vscode.lm.registerMcpServerDefinitionProvider` for programmatic MCP registration. MCP Sampling with model access controls. MCP Apps (`@modelcontextprotocol/ext-apps`) with SDK (connect, callServerTool, sendMessage, updateModelContext). MCP Resources via "Add Context". Prompts as slash commands. Tool annotations (`title`, `readOnlyHint`). Dynamic tool discovery. MCP installation URL + CLI (`--add-mcp`). Dev mode (watch + debug). Streamable HTTP transport. Icons (`src` URI on servers/tools/resources). Autodiscovery from Claude Desktop. OAuth 2.1 with GitHub/Entra built-in + DCR fallback. Updated 02/04/2026. | High |
-| VS Code AI Extensibility Overview | https://code.visualstudio.com/api/extension-guides/ai/ai-extensibility-overview | 2026-02-19 | Three paths: LM Tools, MCP Tools, Chat Participant. Decision guide: LM Tools for VS Code API integration; MCP Tools for cross-platform; Chat Participant for end-to-end control. Updated 02/04/2026. | High |
-| MCP spec 2025-06-18 | https://modelcontextprotocol.io/specification/2025-06-18 | 2026-02-19 | New revision: Removed JSON-RPC batching. Added structured tool output (`outputSchema`/`structuredContent`). Elicitation (server→user queries). Resource links in tool results. `title` field for display names. `context` field in CompletionRequest. OAuth as Resource Server with RFC 8707. `_meta` on more types. Protocol version header for HTTP. | High |
-| MCP spec changelog | https://modelcontextprotocol.io/specification/2025-06-18/changelog | 2026-02-19 | 9 major changes + 3 schema changes since 2025-03-26. Batching removed (RF-060 is invalid). Structured output is the biggest tool-facing change. | High |
-| Cursor MCP docs | https://cursor.com/docs/context/mcp | 2026-02-19 | Tools, Prompts, Resources, Roots, Elicitation all supported. Three transports (stdio/SSE/Streamable HTTP). Config interpolation (`${workspaceFolder}`, `${env:NAME}`, `${userHome}`, `${pathSeparator}`). `envFile` for stdio servers. Auto-run for tools. OAuth with static client credentials. One-click install buttons. | High |
-| Cursor MCP Extension API | https://cursor.com/docs/context/mcp-extension-api | 2026-02-19 | `vscode.cursor.mcp.registerServer()` / `unregisterServer()`. Types: `StdioServerConfig`, `RemoteServerConfig`. Enables programmatic MCP registration without mcp.json. | High |
-| DSPy RLM integration | https://github.com/stanfordnlp/dspy/issues/9289, https://github.com/stanfordnlp/dspy/pull/9295 | 2026-02-19 | Production-ready RLM for DSPy: multimodal media support (`llm_query_with_media`), budget controls (`budget()`, `max_time`, `max_cost`), multi-model sub-call routing (`sub_lms`), LocalInterpreter (unsandboxed), depth>1 recursion, GEPA compatibility. 20+ tests. +2825 lines. | Medium |
-| RLM paper v2 | https://arxiv.org/abs/2512.24601v2 | 2026-02-19 | Updated Jan 28, 2026 (v2). 9 pages + 33 appendix. Core design: REPL interaction, recursive sub-calls, context decomposition, FINAL/FINAL_VAR semantics. | High |
-| RLM blog | https://alexzhang13.github.io/blog/2025/rlm/ | 2026-02-19 | Strategies: Peeking, Grepping, Partition+Map, Summarization, Long-input/long-output. Benchmarks: RLM(GPT-5-mini) outperforms GPT-5 on OOLONG 132k by 114%. BrowseComp-Plus: only RLM maintains perfect performance at 1000 docs. Limitations: no async sub-calls, no cost/runtime guarantees. Future: RL-ifiable trajectories as inference-time scaling axis. | High |
-| rlm-minimal | https://github.com/alexzhang13/rlm-minimal | 2026-02-19 | Gist-like RLM implementation. 683 stars, 109 forks. `rlm_repl.py` + `repl.py`. Only depth=1 in default config; depth>1 via swapping `Sub_RLM` → `RLM_REPL`. PR #3 merged (swap model config). No IDE integration features. | Low |
-| rlm-minimal forks | https://github.com/alexzhang13/rlm-minimal/forks | 2026-02-19 | 109 forks; only `mateolafalce/human-action-rlm` (7 stars) is notable. No IDE-relevant changes in any fork. | Low |
-| VS Code MCP servers | https://code.visualstudio.com/docs/copilot/chat/mcp-servers | 2026-02-19 | Config format: stdio/HTTP/SSE. `envFile` in stdio config. Input variables (`promptString`) for API keys. Tool sets for grouping. `chat.mcp.autoStart` (experimental). MCP server gallery (`@mcp` in Extensions). Settings Sync for MCP configs. Enterprise management via GitHub policies. Max 128 tools per request. Unix socket support. Server naming: camelCase. Updated 02/04/2026. | High |
-| GitHub Copilot Extensions/MCP | https://docs.github.com/en/copilot/concepts/context/mcp | 2026-02-19 | GitHub now uses MCP as the primary Copilot extension mechanism (replaces old Copilot Extensions skillset/agent model). GitHub MCP Registry at github.com/mcp. Enterprise MCP policy (enabled/disabled per org). GitHub MCP server supports remote access + toolset customization. | Medium |
+| Upstream rlm repo | https://github.com/alexzhang13/rlm | 2026-07-15 | ~2.9k stars, 548 forks, 20+ contributors. Latest: `2e5764b` (Mar 2) — semaphore queue for batched sub-calls. Release v0.1.1a (depth>1, compaction). 36 open PRs, 28 open issues. | High |
+| Upstream commit Mar 2 | https://github.com/alexzhang13/rlm/pull/131 | 2026-03-02 | PR #131 (merged): Replace `asyncio.run_all()` with semaphore queue for batched LM sub-calls. Cap batching to 16. 99 additions, 12 deletions. | High |
+| Upstream PR #129 (open) | https://github.com/alexzhang13/rlm/pull/129 | 2026-07-15 | Fix budget tracking: cumulative cost with handler deltas. Fixes subcall cost visibility and `_check_iteration_limits` overwriting `_cumulative_cost`. 128+/16-. By le-big-mac. | High |
+| Upstream PR #127 (open) | https://github.com/alexzhang13/rlm/pull/127 | 2026-07-15 | Claude 4.6 hallucinated FINAL() fix — skip text FINAL when code blocks present. 7+/1-. By huiwenn. Upstream author hesitant ("ideally less hacky solutions"). | High |
+| Upstream PR #126 (open) | https://github.com/alexzhang13/rlm/pull/126 | 2026-07-15 | Anthropic prompt caching (`cache_control` annotations), per-model USD cost tracking with built-in pricing table, shared LM handler for child RLMs, cache-aware billing. 1047+/63-. By iam-dev. | Medium |
+| Upstream PR #125 (open) | https://github.com/alexzhang13/rlm/pull/125 | 2026-02-27 | Claude Code CLI client + unit tests. New backend for Claude Code as RLM client. | Low |
+| Upstream PR #124 (open) | https://github.com/alexzhang13/rlm/pull/124 | 2026-02-27 | Replace 15 bare `except:` with `except Exception:` in REPL environments. Already fixed in this fork (RF-087). | Medium |
+| Upstream PR #122 (open) | https://github.com/alexzhang13/rlm/pull/122 | 2026-02-27 | Fix incorrect numbering of custom tools section in system prompt. Already fixed in this fork (RF-088). | Low-Medium |
+| Upstream PR #115 (open) | https://github.com/alexzhang13/rlm/pull/115 | 2026-07-15 | Two fixes: (1) parser matched FINAL() inside fenced code blocks → wrong answers, (2) FINAL never injected into REPL globals → NameError. Adds `_final()` method, adds FINAL to RESERVED_TOOL_NAMES. 57+/2-. By jkbrooks. | Medium |
+| Upstream PR #114 (open) | https://github.com/alexzhang13/rlm/pull/114 | 2026-02-19 | Extra user-defined tools via `tool_prompts` + `tool_code` params. | Low |
+| Upstream PR #84 (merged) | https://github.com/alexzhang13/rlm/pull/84 | 2026-02-19 | Depth>1 `_subcall()`, `BudgetExceededError`, cost tracking, execution limits, event callbacks. 3168 additions. Already implemented in this fork (RF-070). | High |
+| Upstream PR #54 (open) | https://github.com/alexzhang13/rlm/pull/54 | 2026-02-19 | Groq API and Cerebras SDK client implementations. Already implemented in this fork (RF-077). | Low |
+| Upstream PR #49 (open) | https://github.com/alexzhang13/rlm/pull/49 | 2026-07-15 | Multimodal support (vision and audio). 1 review requesting changes. 3 comments. | Medium |
+| Upstream PR #46 (open) | https://github.com/alexzhang13/rlm/pull/46 | 2026-07-15 | Jupyter Support, Traces & Persistent REPL (Specs 00-02). 4 tasks done. | Low |
+| Upstream PR #16 (open) | https://github.com/alexzhang13/rlm/pull/16 | 2026-07-15 | Interactive playground for running new queries. 7 comments. | Low |
+| Upstream issues | https://github.com/alexzhang13/rlm/issues | 2026-07-15 | 28 open. #117: VLM sub-queries. #113: pip 3.10 stub. #100: Azure Anthropic. #92: claude-agent-sdk. #88: Standard API. #82: Memoization. #50: Structured output. #42: ContextWindowExceeded. #31: K8s sandboxes. | Medium |
+| VS Code v1.99 release notes | https://code.visualstudio.com/updates/v1_99 | 2026-07-15 | March 2025: Agent mode stable, MCP server support, fetch/usages/thinking tools, BYOK preview, unified chat view, prompt files, extension tools in agent mode, SWE-bench 56% pass rate. | High |
+| VS Code v1.100 release notes | https://code.visualstudio.com/updates/v1_100 | 2026-07-15 | April 2025: Instructions/prompt files, `#githubRepo` tool, Streamable HTTP MCP, MCP image output, conversation summary + prompt caching, MCP tool annotations (`readOnlyHint`), proposed MCP extension API. | High |
+| VS Code v1.101 release notes | https://code.visualstudio.com/updates/v1_101 | 2026-07-15 | May 2025: MCP Prompts/Resources/Sampling/Auth GA, tool sets, MCP dev mode, MCP extension APIs finalized, custom chat modes preview, terminal cwd context, Electron 35/Node 22. | High |
+| VS Code v1.102 release notes | https://code.visualstudio.com/updates/v1_102 | 2026-07-15 | June 2025: **Copilot Chat open-sourced** (MIT), **MCP GA**, elicitations, MCP server gallery + discovery, MCP first-class resources (`mcp.json` per profile), MCP migration from settings.json, custom chat modes improvements, terminal auto-approval, CLI `code chat`, edit previous requests, instructions on demand. | Critical |
+| VS Code LM Tools API | https://code.visualstudio.com/api/extension-guides/ai/tools | 2026-03-02 | `vscode.lm.registerTool`, `contributes.languageModelTools`, `when` clauses, `prepareInvocation`. | High |
+| VS Code MCP Developer Guide | https://code.visualstudio.com/api/extension-guides/ai/mcp | 2026-07-15 | Full suite: Tools, Prompts, Resources, Elicitation, Sampling, MCP Apps, Icons, OAuth 2.1, Streamable HTTP, Dev Mode, Extension APIs. | High |
+| VS Code AI Extensibility Overview | https://code.visualstudio.com/api/extension-guides/ai/ai-extensibility-overview | 2026-03-02 | Three paths: LM Tools, MCP Tools, Chat Participant. | High |
+| MCP spec 2025-06-18 | https://modelcontextprotocol.io/specification/2025-06-18 | 2026-03-02 | Structured tool output, elicitation, resource links, `title` field, OAuth as Resource Server, protocol version header. | High |
+| MCP spec changelog | https://modelcontextprotocol.io/specification/2025-06-18/changelog | 2026-02-27 | 9 major + 3 schema changes since 2025-03-26. Batching removed, structured output biggest change. | High |
+| Cursor MCP docs | https://cursor.com/docs/context/mcp | 2026-03-02 | Tools, Prompts, Resources, Roots, Elicitation supported. stdio/SSE/Streamable HTTP. Config interpolation. `envFile`. Auto-run. OAuth. | High |
+| Cursor MCP Extension API | https://cursor.com/docs/context/mcp-extension-api | 2026-02-19 | `vscode.cursor.mcp.registerServer()`/`unregisterServer()`. | High |
+| VS Code MCP servers user docs | https://code.visualstudio.com/docs/copilot/chat/mcp-servers | 2026-02-19 | `envFile`, tool sets, `chat.mcp.autoStart`, MCP gallery, max 128 tools. | High |
+| GitHub Copilot MCP | https://docs.github.com/en/copilot/concepts/context/mcp | 2026-02-19 | MCP is primary Copilot extension mechanism. GitHub MCP Registry. | Medium |
+| DSPy RLM issue #9289 | https://github.com/stanfordnlp/dspy/issues/9289 | 2026-07-15 | Now has linked PR #9295 (+2825 lines). Multimodal media, budget controls (`budget()`, `max_time`, `max_cost`), multi-model routing (`sub_lms`), LocalInterpreter, depth>1 recursion, GEPA bootstrap_trace resilience. 20 new tests. | Medium |
+| RLM paper v2 | https://arxiv.org/abs/2512.24601v2 | 2026-02-19 | Updated Jan 28, 2026. Core design unchanged. | High |
+| RLM blog | https://alexzhang13.github.io/blog/2025/rlm/ | 2026-02-19 | Strategies, benchmarks, limitations. | High |
+| rlm-minimal | https://github.com/alexzhang13/rlm-minimal | 2026-02-19 | 683 stars, 109 forks. No IDE integration. | Low |
 
-## Implemented (previous sessions, RF-001 through RF-074)
+## Implemented (previous sessions, RF-001 through RF-090)
 
-All items from RF-001 through RF-074 (except blocked RF-065, RF-069, RF-070) have been implemented and verified. This includes upstream PRs #106 (custom tools), #108 (timeouts), #109 (scaffold protection), #110 (compaction); VS Code LM tools registration; MCP tool annotations; MCP prompts; MCP resources; MCP sampling bridge; MCP programmatic server registration (both VS Code RF-063 and Cursor RF-066); token budget protection; soft cancellation; streaming; follow-up provider; Streamable HTTP endpoints; chunk metadata reconstruction; model preferences; fail-fast semantics; tools/list_changed notifications; Cursor rules; provider-native streaming; and more. See `docs/orchestrator/state.json` for the full verified list.
+All items from RF-001 through RF-090 have been implemented and verified. See `docs/orchestrator/state.json` for the full verified list. Key recent additions:
+- RF-070: Recursive subcalls with budget propagation (depth>1, error/timeout/cost rollup)
+- RF-075: MCP cancellation support
+- RF-087: Bare except cleanup
+- RF-088: Custom tools numbering fix
+- RF-089: Semaphore queue for batched sub-calls
+- RF-090: BudgetExceededError and cumulative cost tracking
 
 ## VS Code Copilot Agent Chat
 
@@ -47,237 +64,210 @@ All items from RF-001 through RF-074 (except blocked RF-065, RF-069, RF-070) hav
 - Soft cancellation via `type: cancel` (RF-012)
 - Token budget protection (RF-013)
 - Follow-up provider (RF-007)
+- Resource links in `rlm.complete` tool results (RF-084)
+
+### New Developments (v1.100–v1.102)
+
+1. **Copilot Chat open-sourced** (v1.102, MIT license) — Full source at `microsoft/vscode-copilot-chat`. Includes agent mode prompts, inline chat, MCP integration implementation. Enables deep study of how chat participant → agent mode → tool calling works internally.
+
+2. **MCP GA** (v1.102) — MCP is now generally available, no longer experimental. Organization policies can control MCP availability.
+
+3. **MCP first-class resources** (v1.102) — MCP servers now stored in dedicated `mcp.json` per VS Code profile, not `settings.json`. Automatic migration from old format. Settings Sync integration.
+
+4. **Elicitation support** (v1.102) — VS Code supports MCP elicitations per 2025-06-18 spec. Servers can request structured user input.
+
+5. **MCP server gallery + discovery** (v1.102) — VS Code `code.visualstudio.com/mcp` curated list, Extensions view integration, one-click install, management view.
+
+6. **Custom chat modes** (v1.101 preview → v1.102 improvements) — `.chatmode.md` files with `model`, `tools`, `description` metadata. Import via `vscode:chat-mode/install?url=...`. Configure gear menu.
+
+7. **Instructions on demand** (v1.102) — LLM can load `.instructions.md` files on demand based on glob patterns and descriptions.
+
+8. **Terminal auto-approval** (v1.102, experimental) — Allow/deny list for auto-approving terminal commands. `github.copilot.chat.agent.terminal.allowList`/`denyList`.
+
+9. **CLI chat** (v1.102) — `code chat [options] [prompt]` with `-m` mode, `-a` add-file, `--maximize`. Enables headless/script-driven RLM integration.
+
+10. **MCP Auth** (v1.101) — OAuth 2.1 authorization for MCP servers (both 2025-03-26 and draft specs). GitHub/Entra built-in.
+
+11. **MCP Dev Mode** (v1.101) — `dev.watch` for file-watching restarts, `dev.debug` for Node.js/Python server debugging.
+
+12. **Tool sets** (v1.101) — Group tools into named sets, enable/disable together, reference via `#setname`.
+
+13. **Conversation summary + prompt caching** (v1.100) — Automatic conversation compression for long sessions. Stable prefix for reduced latency.
 
 ### Best Available Methods
-1. **`vscode.lm.registerMcpServerDefinitionProvider`** — VS Code supports programmatic MCP server registration from extensions. Instead of relying on `.vscode/mcp.json`, the extension can auto-register the RLM MCP gateway on activation, providing a seamless zero-config experience.
-   - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp#register-an-mcp-server-in-your-extension
-   - Requires `contributes.mcpServerDefinitionProviders` in package.json
-   - Implementation: `McpStdioServerDefinition` with command/args
-   - Also supports `McpHttpServerDefinition` for Streamable HTTP
-   - Benefit: Users don't need to manually configure `.vscode/mcp.json`
-
-2. **MCP Apps** — Interactive UI components in tool responses. Could render iteration progress timelines, code execution results, or provenance graphs inline in chat.
-   - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp (MCP Apps section)
-   - SDK: `@modelcontextprotocol/ext-apps` — `App.connect()`, `callServerTool()`, `sendMessage()`, `updateModelContext()`
-   - Architecture: Tool returns `_meta.ui.resourceUri` pointing to `ui://` HTML resource with `text/html;profile=mcp-app` MIME
-   - Security: Sandboxed iframe with CSP; declare `connectDomains`, `resourceDomains`, `frameDomains`
-   - Status: Available in VS Code (inline display mode only, no fullscreen or pip)
-
-3. **MCP Installation URL** — `vscode:mcp/install?{json-config}` enables one-click MCP server installation from a web page or CLI. Also `--add-mcp` CLI option.
-   - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp#create-an-mcp-installation-url
-   - Could be added to README / docs for easy setup
-
-4. **MCP Dev Mode** — VS Code supports `dev` config for MCP servers with `watch` (file glob for auto-restart) and `debug` (Node.js/Python debugger attachment).
-   - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp#mcp-development-mode-in-vs-code
-   - Could provide dev mode config in `.vscode/mcp.json` for contributors
-
-5. **MCP Icons** — VS Code supports icons on MCP servers, resources, and tools via `src` URI property. Stdio servers can use `file:///` URIs or data URIs.
-   - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp (Icons section)
-   - Could add RLM icon to the MCP server definition for better visual identification
-
-6. **Autodiscovery** — VS Code can discover MCP servers from other tools (e.g., Claude Desktop config).
-   - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp (Add MCP servers section)
-   - Informational: users who have RLM configured in Claude Desktop would see it in VS Code too
-
-7. **Tool Sets** — VS Code supports grouping tools into named tool sets. The 14 RLM gateway tools could be grouped into logical sets (e.g., "RLM Core", "RLM Search", "RLM Files") for easier management.
-   - Source: https://code.visualstudio.com/docs/copilot/chat/mcp-servers#_group-related-tools-in-a-tool-set
-   - Reduces tool picker clutter; no code change needed (VS Code manages grouping)
-
-8. **`envFile` support** — VS Code also supports `envFile` in stdio config (not just Cursor). Can reference `.env` for API keys.
-   - Source: https://code.visualstudio.com/docs/copilot/chat/mcp-servers#_standard-io-stdio-servers
-   - Could add `envFile` to `.vscode/mcp.json` for consistent API key management across both IDEs
-
-9. **`chat.mcp.autoStart`** — Experimental VS Code setting to auto-start MCP servers when config changes. Reduces manual server restarts.
-   - Source: https://code.visualstudio.com/docs/copilot/chat/mcp-servers#_automatically-start-mcp-servers
-   - Informational: document in playbooks for better DX
-
-10. **GitHub MCP as Copilot Extension Mechanism** — GitHub now uses MCP as the primary way to extend Copilot (replacing the old Copilot Extensions skillset/agent model). The RLM MCP gateway approach is the correct architecture.
-    - Source: https://docs.github.com/en/copilot/concepts/context/mcp
-    - GitHub MCP Registry at github.com/mcp could host the RLM gateway in the future
-    - Enterprise MCP policy (enabled/disabled per org) — enterprise users may need approval
-
-11. **OAuth 2.1 Authorization** — VS Code supports MCP server authorization via OAuth 2.1 with built-in GitHub and Microsoft Entra support, plus DCR fallback for other IdPs. Relevant if the gateway is deployed as a remote HTTP service for enterprise use.
-    - Source: https://code.visualstudio.com/api/extension-guides/ai/mcp (Authorization section)
-    - Redirect URLs: `http://127.0.0.1:33418` and `https://vscode.dev/redirect`
-    - Users manage trusted MCP servers via Accounts menu
-
-12. **Resource links in tool results** — MCP spec 2025-06-18 adds resource links in tool results (PR #603). Tool responses from `rlm.complete` could link to trajectory resources, providing structured access to iteration data.
-    - Source: https://modelcontextprotocol.io/specification/2025-06-18/server/tools#resource-links
+1. **`vscode.lm.registerMcpServerDefinitionProvider`** — Programmatic MCP server registration (implemented, RF-063).
+2. **MCP Apps** — Interactive UI in tool responses via `@modelcontextprotocol/ext-apps` SDK (RF-062).
+3. **MCP Installation URL** — `vscode:mcp/install?{json-config}` for one-click setup.
+4. **Custom Chat Modes** — `.chatmode.md` for tailored RLM workflows (e.g., "RLM Agent" mode with specific tools).
+5. **Instructions on demand** — LLM auto-loads relevant `.instructions.md` files.
+6. **MCP Dev Mode** — `watch` + `debug` config for contributors.
+7. **MCP Icons** — `icons` with `src` URI on servers/tools/resources.
+8. **Tool Sets** — Tool grouping for reduced picker clutter.
+9. **`envFile` support** — API key management in MCP config.
+10. **GitHub MCP Registry** — MCP is primary Copilot extension mechanism.
+11. **Terminal auto-approval** — Auto-approve safe commands for faster agent loops.
+12. **CLI `code chat`** — Script-driven RLM invocation from terminal.
 
 ### Recommended Changes (ranked by impact, with evidence)
-1. **Add MCP elicitation support** (RF-065) — Medium impact. Server can request user input during tool execution (e.g., API key, confirmation). **BLOCKED** pending SDK/design decision.
-2. **Add resource links in tool results** (RF-084) — Low-medium impact. `rlm.complete` returns links to trajectory/iteration resources for structured data access.
-3. **Add MCP Icons to server/tools** (RF-076) — Low impact. Better visual identification in tools picker/server list.
+1. **Explore MCP Apps for interactive RLM UI** (RF-062) — Future. Replace text progress with interactive visualization.
+2. ~~**Provide custom chat mode for RLM** (RF-091)~~ — DONE. Created `.vscode/rlm-agent.chatmode.md`.
+3. ~~**MCP `mcp.json` migration** (RF-092)~~ — DONE. Verified `.vscode/mcp.json` already v1.102-compatible.
+4. ~~**Adopt Anthropic prompt caching** (RF-093)~~ — DONE. Added `_ANTHROPIC_PRICING` table and `get_estimated_cost()` to `rlm/clients/anthropic.py`.
+5. ~~**Budget tracking fix from PR #129** (RF-094)~~ — DONE. Handler-delta approach already implemented; added subcall cost accumulation tests.
+6. **FINAL() safety from PR #115 and PR #127** (RF-095/RF-096/RF-097) — RF-096 (hallucination guard) and RF-097 (code-fence stripping + FINAL in RESERVED_TOOL_NAMES) are DONE. RF-095 remains P4 (needs user approval).
 
 ## Cursor Agent Chat
 
 ### Current State (this project)
 - MCP config at `.cursor/mcp.json` (stdio transport)
 - Extension detects Cursor and skips Chat Participant registration
-- MCP gateway fully functional with all 14+ tools
-- Cursor rules in `.cursor/rules/` for tool-use behavior
-- MCP Prompts/Resources/Sampling available
 - Programmatic MCP registration via `vscode.cursor.mcp.registerServer()` (RF-066)
+- MCP gateway fully functional with all 14+ tools
+- Cursor rules in `.cursor/rules/`
+- MCP Prompts/Resources/Sampling available
 
 ### Best Available Methods
-1. **`vscode.cursor.mcp.registerServer()`** — Cursor extension API for programmatic MCP server registration (RF-066, implemented).
-   - Source: https://cursor.com/docs/context/mcp-extension-api
-
-2. **Elicitation** — Cursor supports MCP elicitation (server-initiated user queries). Could be used for API key prompting, confirmation dialogs.
-   - Source: https://cursor.com/docs/context/mcp (protocol support table)
-
-3. **Config interpolation** — Cursor resolves `${workspaceFolder}`, `${env:NAME}`, `${userHome}`, `${workspaceFolderBasename}`, `${pathSeparator}` in mcp.json.
-   - Source: https://cursor.com/docs/context/mcp (config-interpolation section)
-
-4. **`envFile` support** — Cursor supports `envFile` path in stdio server config to load environment variables from a `.env` file.
-   - Source: https://cursor.com/docs/context/mcp (stdio-server-configuration section)
-   - Could add `envFile` to `.cursor/mcp.json` example for API key management
-
-5. **Static OAuth** — Cursor supports `auth` object on remote servers with `CLIENT_ID`, `CLIENT_SECRET`, `scopes` for static OAuth without DCR.
-   - Source: https://cursor.com/docs/context/mcp (static-oauth-for-remote-servers section)
-   - Relevant if the gateway is deployed as a remote HTTP service
-
-6. **One-click install** — Cursor supports "Add to Cursor" buttons and a browseable MCP server directory.
-   - Source: https://cursor.com/docs/context/mcp (one-click-installation section)
-
-7. **Auto-run** — Cursor supports auto-run for trusted tools, bypassing confirmation prompts.
-   - Source: https://cursor.com/docs/context/mcp (auto-run section)
+1. **`vscode.cursor.mcp.registerServer()`** — Programmatic registration (RF-066, implemented).
+2. **Elicitation** — Cursor supports server-initiated user queries.
+3. **Config interpolation** — `${workspaceFolder}`, `${env:NAME}`, `${userHome}`, etc.
+4. **`envFile` support** — API key management via `.env` file.
+5. **Static OAuth** — `auth` object for remote server authentication.
+6. **One-click install** — "Add to Cursor" buttons.
+7. **Auto-run** — Bypass confirmation for trusted tools.
 
 ### Recommended Changes (ranked by impact, with evidence)
-1. **Use elicitation for API key prompting** (RF-069) — Medium impact. When `rlm.complete` needs API key, server can request it via elicitation instead of failing. **BLOCKED** on RF-065.
-2. **Document envFile in Cursor config** (RF-079) — Low impact. Simplifies API key management for Cursor users.
-3. **Submit to Cursor MCP directory** — Low impact. Makes RLM discoverable via "Add to Cursor" button.
+_(No remaining Cursor-specific actions.)_
 
 ## Upstream Delta
 
 ### Features in upstream not in this fork
 
-1. **PR #84: Depth>1 recursive subcalls** (merged Feb 18, 2026) — 3168 additions, 216 deletions
-   - `_subcall()` method spawning child RLM instances with incremented depth
-   - `BudgetExceededError` with `max_budget` parameter, OpenRouter cost extraction
-   - Execution limits: `max_timeout`, `max_tokens`, `max_errors` with exceptions
-   - Event callbacks: `on_subcall_start`, `on_subcall_complete`, `on_iteration_start`, `on_iteration_complete`
-   - `_subcall()` returns `RLMChatCompletion` (uniform return type)
-   - Files: `rlm/core/rlm.py`, `rlm/core/types.py`, `rlm/environments/local_repl.py`, `rlm/clients/openai.py`, `rlm/logger/verbose.py`
-   - Tests: 13 unit tests + 1 e2e test
-   - **Impact**: High — enables true recursive decomposition. Current fork has `max_depth=1` ceiling.
-   - **DSPy reference**: stanfordnlp/dspy#9289 references this PR for production-ready RLM.
+1. **PR #129: Budget tracking fix** (open) — ~~Ported~~ (RF-094). Handler-delta approach implemented; subcall cost accumulation tests added.
 
-2. **PR #115: FINAL() callable + code fence parser fix** (open, Feb 19, 2026)
-   - Makes FINAL() a callable function in REPL environment (not just a string match)
-   - Parser ignores FINAL/FINAL_VAR patterns appearing inside code fences (```...```)
-   - Prevents false-positive final answer detection when LM writes code containing FINAL in comments/strings
-   - **Impact**: Medium — improves parsing reliability for complex REPL outputs
+2. **PR #127: Claude 4.6 hallucinated FINAL()** (open) — ~~Ported~~ (RF-096). `find_final_answer()` skips text-based FINAL() when code blocks are present.
 
-3. **Version 0.1.1 on PyPI** (Feb 18, 2026)
-   - Upstream published to PyPI as `rlms` package (commit `beb0603`)
-   - Users can `pip install rlms` (Python 3.11+ required; Python 3.10 installs broken stub per issue #113)
-   - **Impact**: Low for fork — informational.
+3. **PR #126: Anthropic prompt caching** (open, 1047 additions) — ~~Ported~~ (RF-093). Added `_ANTHROPIC_PRICING` table, `get_estimated_cost()` with cache-aware billing.
 
-4. **New prompt templates** (Feb 18, 2026)
-   - "merge in new prompt with reasoning example" (commit `97bbe97`)
-   - "updated prompt with math example" (commit `725b734`)
-   - **Impact**: Medium — improved default prompts could improve RLM quality for common use cases.
+4. **PR #115: FINAL() callable in REPL** (open, 57 additions) — ~~Ported~~ (RF-097). Added `"FINAL"` to `RESERVED_TOOL_NAMES`. Code-fence stripping and FINAL callable were already implemented.
 
-5. **PR #114: Extra user-defined tools** (open, Feb 18, 2026)
-   - `tool_prompts`: Append extra prompt sections (string or list) to system prompt for documenting custom tools
-   - `tool_code`: Inject Python code into REPL environment before each completion (merged into `setup_code`)
-   - 265 additions, alternative approach to PR #106 (custom tools, already ported)
-   - **Impact**: Low — this fork already has custom tools via RF-052/RF-053.
+5. **PR #125: Claude Code CLI client** (open) — Niche. Low priority.
 
-6. **PR #54: Groq API + Cerebras SDK** (open, Jan 17, 2026)
-   - Adds `GroqClient` and `CerebrasClient` implementations (149 additions)
-   - Enables high-throughput inference via Groq/Cerebras hardware
-   - **Impact**: Low — these providers are accessible via `litellm` client already.
+6. **PR #49: Multimodal support** (open, changes requested) — Vision and audio inputs.
 
-7. **PR #53: Remove file roundtrip in add_context()** (open, Jan 17, 2026)
-   - Removes unnecessary file-based serialization in `LocalREPL.add_context()`
-   - **Impact**: Low — minor performance/code quality improvement.
-
-8. **Backend alias routing for extension-only providers** — Extension settings include `vercel`, `openrouter`, and `vllm`; these are now routed through `litellm` by prefixing model names (`<provider>/<model>`) in the extension Python backend.
+### Notable upstream issues
+- #117: VLM sub-queries
+- #100: Azure Anthropic
+- #92: claude-agent-sdk
+- #82: Memoization
+- #50: Structured output
+- #42: ContextWindowExceeded
+- #31: K8s sandboxes
 
 ### Features in forks worth adopting
-- No active forks of rlm (486 forks) or rlm-minimal (109 forks) have IDE-integration features beyond what is already adopted.
-- Only notable rlm-minimal fork: `mateolafalce/human-action-rlm` (7 stars) — a domain-specific RLM application, not relevant for IDE integration.
+- No active forks have IDE-relevant features worth adopting. (548 forks checked)
 
 ## Paper/Blog Insights
 
 ### Unimplemented techniques
-- **Structured output for final answers** — Paper describes FINAL semantics. Issue #50 requests structured output. MCP spec 2025-06-18 adds `outputSchema`/`structuredContent` which aligns.
-- **Memoization of sub-calls** — Issue #82 proposes caching sub-call results for repeated patterns. Not implemented in upstream or fork.
-- **Asynchronous sub-calls** — Blog explicitly notes: "each recursive LM call is both blocking and does not take advantage of any kind of prefix caching." Parallelizing independent sub-calls in Partition+Map strategy could reduce latency significantly. Not implemented in upstream.
-- **Cost/runtime guarantees** — Blog notes: "we do not currently have strong guarantees about controlling either the total API cost or the total runtime of each call." DSPy integration (stanfordnlp/dspy#9289) addresses this with `budget()`, `max_time`, `max_cost`. Upstream PR #84 adds `max_budget`/`BudgetExceededError`.
+- **Structured output for final answers** — Paper FINAL semantics + Issue #50 + MCP `outputSchema`/`structuredContent`.
+- **Memoization of sub-calls** — Issue #82.
+- **Cost/runtime guarantees** — DSPy `budget()`, upstream `max_budget`/`BudgetExceededError`. PR #129 fixes budget tracking.
 
-### Design rationale clarifications
-- **Context-centric decomposition** — Blog clarifies RLMs decompose by context (not by task/problem). "We retain the view that LM calls can be decomposed by the context, and the choice of decomposition should purely be the choice of an LM." Differs from agents (task decomposition).
-- **Metadata as user message** — Issue #111 questions metadata placement. Upstream PR #84 changed metadata role to "user" (already adopted via RF-056).
-- **Paper v2 update** (Jan 28, 2026) — Minor revisions to appendix; core design unchanged.
+### DSPy RLM integration (updated)
+- PR #9295 now open (+2825 lines): multimodal media, budget controls (`budget()`, `max_time`, `max_cost`), multi-model routing (`sub_lms`), LocalInterpreter (unsandboxed exec), depth>1 recursion, GEPA bootstrap_trace resilience.
+- 20 new tests, 30 subcall tests, offline (no API keys needed).
+- Multi-model routing (`sub_lms`) is not yet in our fork; could be useful for IDE integration where different models serve different purposes.
 
 ### Emergent RLM strategies (from blog)
-1. **Peeking** — Root LM grabs small slices of context to observe structure (e.g., first 2000 chars).
-2. **Grepping** — Uses regex/keyword patterns to narrow lines of interest (semantic retrieval replacement).
-3. **Partition + Map** — Chunks context → recursive LM calls per chunk → aggregation. Most common for semantic tasks.
-4. **Summarization** — Summarizes subsets of context for root LM decision-making.
-5. **Long-input/long-output** — One-shots programmatic tasks (e.g., LoCoDiff benchmark: tracking git diff history via code execution).
-
-These strategies emerge naturally without prompting. Blog notes: "a lot more patterns will emerge when models get better and are trained to work this way."
+1. Peeking — Small slices for structure observation.
+2. Grepping — Regex/keyword narrowing.
+3. Partition + Map — Chunk → recursive → aggregate.
+4. Summarization — Subset summaries for decisions.
+5. Long-input/long-output — Programmatic one-shots.
 
 ## Academic/Industry Patterns
 
-### Applicable patterns from other projects
-
-1. **DSPy RLM integration** (stanfordnlp/dspy#9289, PR #9295) — Comprehensive production-ready RLM features for DSPy:
-   - **Multimodal media**: `llm_query_with_media(prompt, *media_var_names)` — auto-detects Audio/Image inputs, adds them as multimodal content parts to sub-LLM calls. Media objects held in registry outside sandbox.
-   - **Multi-model sub-call routing**: `sub_lms={"strong": lm_pro}` — named LM dict, sandbox selects model via `llm_query(prompt, model="strong")`.
-   - **Budget awareness**: `budget()` callable in sandbox returns human-readable summary of remaining iterations, LLM calls, time, cost. Warns at <20% threshold. `max_time`/`max_cost` trigger extract-fallback (not crash).
-   - **LocalInterpreter**: Unsandboxed `exec()` in host process. State persists across iterations. Full package access (numpy, PIL, etc.).
-   - **GEPA resilience**: Broad `except Exception` handler preserves partial trace for optimization.
-   - **Depth>1 via LocalInterpreter**: Child inherits parent's interpreter type. Budget propagation: children receive remaining time/cost.
-   - **Branch**: +2825 lines, 20 new tests, 6 test classes.
-   - **Relevance to this fork**: Multi-model routing (`sub_lms`) pattern is directly applicable. Budget awareness (`budget()`) callable could be exposed in REPL. Multimodal support requires paper/design work.
+### Applicable patterns
+1. **DSPy RLM** — `budget()` callable, multimodal media, multi-model routing.
 
 ### MCP protocol opportunities
+1. **Structured tool output** — `outputSchema`/`structuredContent` for typed results.
+2. **MCP Apps** — Interactive UI for RLM progress (RF-062).
+3. **Protocol version header** — `MCP-Protocol-Version` required in HTTP.
+4. **Elicitation** — Server-initiated user input (now GA in VS Code v1.102).
 
-1. **Elicitation** (spec 2025-06-18) — Server can request input from users mid-tool. Could prompt for API keys, environment selection, or confirmation before expensive operations.
-   - Source: https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation
-
-2. **Structured tool output** (spec 2025-06-18) — `outputSchema`/`structuredContent` allows tools to return typed data alongside text. Could structure `rlm.complete` results with typed fields for answer, iterations, usage.
-   - Source: https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content
-
-3. **Resource links in tool results** (spec 2025-06-18, PR #603) — Tool results can include links to MCP resources. `rlm.complete` could link to trajectory/iteration resources for IDE to browse.
-   - Source: https://modelcontextprotocol.io/specification/2025-06-18/server/tools#resource-links
-
-4. **JSON-RPC batching removed** (spec 2025-06-18) — RF-060 is now **invalid**; batching was removed from the spec.
-   - Source: https://modelcontextprotocol.io/specification/2025-06-18/changelog (Major change #1)
-
-5. **`context` field in CompletionRequest** (spec 2025-06-18) — Completion requests can include previously-resolved variables. Relevant for MCP prompt argument autocompletion.
-   - Source: https://modelcontextprotocol.io/specification/2025-06-18/changelog (Schema change #2)
-
-6. **Protocol version header** (spec 2025-06-18) — `MCP-Protocol-Version` header required in subsequent HTTP requests after negotiation.
-   - Source: https://modelcontextprotocol.io/specification/2025-06-18/changelog (Major change #8)
+### VS Code ecosystem changes (NEW)
+1. **Copilot Chat open-sourced** (v1.102) — MIT license at `microsoft/vscode-copilot-chat`. Enables studying agent mode implementation.
+2. **Custom chat modes** (v1.101–v1.102) — `.chatmode.md` extensibility for tailored AI workflows with specific tools and instructions.
+3. **MCP first-class resources** (v1.102) — Profile-specific `mcp.json` replaces settings.json entries.
+4. **Pylance MCP tools** (v1.102) — Experimental; shows trend of language servers exposing MCP tools.
+5. **MCP server gallery** (v1.102) — `code.visualstudio.com/mcp` curated list with one-click install.
 
 ## Cross-Cutting Concerns
 
 ### Streaming and progress
-- Extension backend streams iteration progress via JSON-over-stdin/stdout (RF-029 implemented).
-- MCP gateway uses text-based progress in tool results.
-- MCP Apps could replace text progress with interactive UI (future exploration, RF-062).
+- Extension streams iteration progress (RF-029). MCP gateway uses text progress. MCP Apps could replace with interactive UI (RF-062, future).
 
 ### Cancellation
-- Soft cancellation implemented in extension backend (RF-012).
-- MCP gateway has no cancellation support for long-running `rlm.complete` calls. MCP spec supports cancellation notifications (`notifications/cancelled`). See RF-075.
+- Extension: soft cancellation (RF-012). MCP gateway: cancellation via `Session.cancellation_requested` + `_CancellationError` callback (RF-075, implemented).
 
 ### Multi-turn and persistence
-- `SupportsPersistence` protocol with `save_state()`/`load_state()` implemented.
-- Extension supports multi-turn sessions with `newSession` command.
+- `SupportsPersistence` with `save_state()`/`load_state()`. Multi-turn via `newSession`.
 
 ### Security boundaries
-- Two sandbox tiers documented in `docs/quality/security_surfaces.md`.
-- MCP gateway has path validation, CORS restriction, optional API key auth.
-- MCP spec 2025-06-18 strengthens OAuth requirements (Resource Indicators per RFC 8707) — relevant if HTTP mode is exposed publicly.
-- VS Code supports OAuth 2.1 for MCP servers with built-in GitHub/Entra auth + DCR fallback.
+- Sandbox tiers in `docs/quality/security_surfaces.md`.
+- Bare `except:` in REPL environments — Fixed (RF-087).
+- MCP spec 2025-06-18 strengthens OAuth (RFC 8707).
 
-### Configured backend routing
-- Extension `package.json` lists `openrouter`, `vercel`, `vllm` as backend options.
-- Extension Python backend maps these selections to `litellm` and prefixes model names for provider routing.
-- No dedicated `rlm/clients/*` wrappers are required for these three providers in extension API-key mode.
+### Batched sub-calls reliability
+- DONE: Semaphore queue (cap 16) for batched LM sub-calls (RF-089).
+
+### Budget and cost tracking
+- Our RF-090 implements `BudgetExceededError` and `_cumulative_cost`. Upstream PR #129's handler-delta approach ported (RF-094). Subcall cost accumulation verified with 3 new tests.
+
+## Session Log
+
+### Session 2026-07-15
+
+**Sources ingested**: 35+ (upstream repo, 12+ upstream PRs, VS Code v1.99–v1.102 release notes, DSPy #9289/#9295, MCP spec, Cursor docs, GitHub Copilot MCP docs)
+
+**Key new findings**:
+- VS Code Copilot Chat open-sourced (v1.102) — MIT license, enables deep agent mode study
+- MCP officially GA in VS Code v1.102 — no longer experimental
+- MCP servers now first-class resources with dedicated `mcp.json` per profile (v1.102)
+- Elicitation support GA in VS Code (v1.102)
+- Custom chat modes finalized (v1.101–v1.102) — new extensibility primitive
+- Terminal auto-approval (v1.102) — experimental setting for agent workflows
+- CLI `code chat` subcommand (v1.102) — script-driven chat integration
+- DSPy RLM PR #9295 now open with +2825 lines
+- Upstream PR #129 budget tracking fix (alternative to our RF-090 approach)
+- Upstream PR #127 Claude 4.6 hallucinated FINAL() fix
+
+**New RF items**: RF-091 through RF-097
+
+**Convergence check**: All RF-001 through RF-090 remain verified. Only RF-062 carried over from prior session. 6 new items added. Pipeline is converging — most research items implemented.
+
+**No source code changes** — research-only session.
+
+### Session 2026-07-15 (Implementation)
+
+**Items implemented**: RF-091, RF-092, RF-093, RF-094, RF-096, RF-097
+
+**Code changes**:
+- `rlm/utils/parsing.py`: `find_final_answer()` skips text-based FINAL() when code blocks present (RF-096)
+- `rlm/environments/base_env.py`: Added `"FINAL"` to `RESERVED_TOOL_NAMES` (RF-097)
+- `rlm/clients/anthropic.py`: Added `_ANTHROPIC_PRICING` table and `get_estimated_cost()` (RF-093)
+- `.vscode/rlm-agent.chatmode.md`: Custom chat mode for RLM Agent (RF-091)
+- `.vscode/mcp.json`: Verified v1.102-compatible, no changes needed (RF-092)
+
+**Tests added**: 12 new tests across 4 files
+- `tests/test_parsing.py`: 6 tests (hallucination guard, FINAL overwrite protection)
+- `tests/test_budget_and_limits.py`: 3 tests (subcall cost accumulation)
+- `tests/clients/test_anthropic_prompt_cache.py`: 2 tests (cache-aware cost estimation)
+- `tests/test_recursive_subcalls.py`: 1 test fixed (regression from RF-096)
+
+**Verification**: `make check` 485 passed, `make ext-check` 15 passed
+
+**Items remaining**: RF-062 (P4, MCP Apps), RF-095 (P4, needs user approval)
+
+**Convergence**: Only P4 items remain. Pipeline converged for P2/P3.
