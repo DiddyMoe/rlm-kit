@@ -12,7 +12,6 @@ try:
 except ImportError:
     _networkx_module = None
 
-nx: Any = _networkx_module
 NETWORKX_AVAILABLE: bool = _networkx_module is not None
 
 
@@ -51,8 +50,8 @@ class GraphTracker:
         self.nodes: dict[str, GraphNode] = {}
         self.root_node_id: str | None = None
         self.graph: Any | None
-        if NETWORKX_AVAILABLE:
-            self.graph = nx.DiGraph()
+        if _networkx_module is not None and hasattr(_networkx_module, "DiGraph"):
+            self.graph = _networkx_module.DiGraph()
         else:
             self.graph = None
 
@@ -95,18 +94,22 @@ class GraphTracker:
 
         # Add to NetworkX graph if available
         if self.graph is not None:
+            node_attrs: dict[str, str | int | float | None] = {
+                "depth": depth,
+                "iteration": iteration,
+                "model": model,
+                "prompt_preview": node.prompt_preview,
+                "response_preview": node.response_preview,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "execution_time": execution_time,
+            }
+            filtered_node_attrs: dict[str, str | int | float] = {
+                key: value for key, value in node_attrs.items() if value is not None
+            }
             self.graph.add_node(
                 node_id,
-                **{
-                    "depth": depth,
-                    "iteration": iteration,
-                    "model": model,
-                    "prompt_preview": node.prompt_preview,
-                    "response_preview": node.response_preview,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "execution_time": execution_time,
-                },
+                **filtered_node_attrs,
             )
             if parent_id is not None and parent_id in self.nodes:
                 self.graph.add_edge(parent_id, node_id)
@@ -177,12 +180,14 @@ class GraphTracker:
 
     def export_graphml(self, file_path: str) -> None:
         """Export graph to GraphML format (requires NetworkX)."""
-        if not NETWORKX_AVAILABLE or self.graph is None:
+        if not NETWORKX_AVAILABLE or self.graph is None or _networkx_module is None:
             raise ImportError(
                 "NetworkX is required for GraphML export. Install with: pip install networkx"
             )
+        if not hasattr(_networkx_module, "write_graphml"):
+            raise ImportError("Installed networkx does not provide write_graphml")
 
-        nx.write_graphml(self.graph, file_path)
+        _networkx_module.write_graphml(self.graph, file_path)
 
     def print_summary(self) -> None:
         """Print graph summary."""

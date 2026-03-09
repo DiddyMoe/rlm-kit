@@ -9,6 +9,7 @@ from typing import Any, cast
 from rlm.clients import BaseLM, get_client
 from rlm.core.lm_handler import LMHandler
 from rlm.core.types import (
+    BudgetExceededError,
     ClientBackend,
     CodeBlock,
     EnvironmentType,
@@ -44,9 +45,18 @@ class RLMConfig:
     depth: int = 0
     max_depth: int = 1
     max_iterations: int = 30
+    max_budget: float | None = None
+    max_timeout: float | None = None
+    max_errors: int | None = None
     custom_system_prompt: str | None = None
     other_backends: list[ClientBackend] | None = None
     other_backend_kwargs: list[dict[str, Any]] | None = None
+    sub_lms: dict[str, BaseLM] | None = None
+    enable_recursive_subcalls: bool = False
+    on_subcall_start: Callable[[dict[str, Any]], None] | None = None
+    on_subcall_complete: Callable[[dict[str, Any]], None] | None = None
+    on_iteration_start: Callable[[dict[str, Any]], None] | None = None
+    on_iteration_complete: Callable[[dict[str, Any]], None] | None = None
     max_root_tokens: int | None = None
     max_sub_tokens: int | None = None
     on_root_chunk: Callable[[str], None] | None = None
@@ -88,6 +98,38 @@ class RLM:
             self._validate_persistent_environment_support()
         self._log_metadata()
 
+    @property
+    def cumulative_cost(self) -> float:
+        return self._cumulative_cost
+
+    @cumulative_cost.setter
+    def cumulative_cost(self, value: float) -> None:
+        self._cumulative_cost = value
+
+    @property
+    def last_handler_tokens(self) -> int:
+        return self._last_handler_tokens
+
+    @last_handler_tokens.setter
+    def last_handler_tokens(self, value: int) -> None:
+        self._last_handler_tokens = value
+
+    @property
+    def error_count(self) -> int:
+        return self._error_count
+
+    @error_count.setter
+    def error_count(self, value: int) -> None:
+        self._error_count = value
+
+    @property
+    def active_time_start(self) -> float | None:
+        return self._active_time_start
+
+    @active_time_start.setter
+    def active_time_start(self, value: float | None) -> None:
+        self._active_time_start = value
+
     def _apply_config(self, config: RLMConfig) -> None:
         self.backend = config.backend
         self.backend_kwargs = config.backend_kwargs
@@ -103,6 +145,7 @@ class RLM:
 
         self.other_backends = config.other_backends
         self.other_backend_kwargs = config.other_backend_kwargs
+        self.sub_lms = config.sub_lms.copy() if config.sub_lms is not None else None
         self.max_root_tokens = config.max_root_tokens
         self.max_sub_tokens = config.max_sub_tokens
         self.on_root_chunk = config.on_root_chunk
@@ -111,6 +154,14 @@ class RLM:
         self.depth = config.depth
         self.max_depth = config.max_depth
         self.max_iterations = config.max_iterations
+        self.max_budget = config.max_budget
+        self.max_timeout = config.max_timeout
+        self.max_errors = config.max_errors
+        self.enable_recursive_subcalls = config.enable_recursive_subcalls
+        self.on_subcall_start = config.on_subcall_start
+        self.on_subcall_complete = config.on_subcall_complete
+        self.on_iteration_start = config.on_iteration_start
+        self.on_iteration_complete = config.on_iteration_complete
         self.system_prompt = config.custom_system_prompt or RLM_SYSTEM_PROMPT
         self.logger = config.logger
         self.verbose = VerbosePrinter(enabled=config.verbose)
@@ -119,6 +170,10 @@ class RLM:
         self.custom_tools = config.custom_tools
         self.persistent = config.persistent
         self._persistent_env: SupportsPersistence | None = None
+        self._cumulative_cost: float = 0.0
+        self._last_handler_tokens: int = 0
+        self._error_count: int = 0
+        self._active_time_start: float | None = None
 
     def _log_metadata(self) -> None:
         if not (self.logger or self.verbose.enabled):
@@ -169,8 +224,14 @@ class RLM:
             for backend, kwargs in paired_backends:
                 other_client: BaseLM = get_client(backend, kwargs)
                 lm_handler.register_client(other_client.model_name, other_client)
+        if self.sub_lms is not None:
+            for alias, sub_lm in self.sub_lms.items():
+                lm_handler.register_client(alias, sub_lm)
         lm_handler.start()
         return lm_handler
+
+    def create_lm_handler(self) -> LMHandler:
+        return self._create_lm_handler()
 
     def _create_environment(self, lm_handler: LMHandler, prompt: str | dict[str, Any]) -> BaseEnv:
         env_kwargs = self.environment_kwargs.copy()
@@ -184,6 +245,7 @@ class RLM:
             "environment_kwargs": self.environment_kwargs.copy(),
             "max_depth": self.max_depth,
             "max_iterations": self.max_iterations,
+            "enable_recursive_subcalls": self.enable_recursive_subcalls,
             "other_backends": self.other_backends.copy() if self.other_backends else None,
             "other_backend_kwargs": (
                 [kwargs.copy() for kwargs in self.other_backend_kwargs]
@@ -193,9 +255,135 @@ class RLM:
             "max_root_tokens": self.max_root_tokens,
             "max_sub_tokens": self.max_sub_tokens,
         }
+        if self.enable_recursive_subcalls:
+            env_kwargs["recursive_subcall_fn"] = self._subcall
         if self.custom_tools is not None:
             env_kwargs["custom_tools"] = self.custom_tools
         return get_environment(cast(EnvironmentType, self.environment_type), env_kwargs)
+
+    def _subcall(
+        self, prompt: str | dict[str, Any], root_prompt: str | None = None
+    ) -> RLMChatCompletion:
+        """Execute a recursive child RLM completion at depth + 1."""
+        if not self.enable_recursive_subcalls:
+            raise ValueError("Recursive subcalls are disabled. Set enable_recursive_subcalls=True.")
+
+        child_depth = self.depth + 1
+        if child_depth > self.max_depth:
+            return self._fallback_answer(prompt)
+
+        start_payload = {
+            "parent_depth": self.depth,
+            "child_depth": child_depth,
+            "max_depth": self.max_depth,
+        }
+        if self.on_subcall_start is not None:
+            self.on_subcall_start(start_payload)
+
+        def _emit_subcall_error(error: Exception) -> None:
+            if self.on_subcall_complete is None:
+                return
+            self.on_subcall_complete(
+                {
+                    **start_payload,
+                    "status": "error",
+                    "error": str(error),
+                }
+            )
+
+        remaining_budget: float | None = None
+        if self.max_budget is not None:
+            remaining_budget = max(self.max_budget - self._cumulative_cost, 0.0)
+
+        remaining_errors: int | None = None
+        if self.max_errors is not None:
+            remaining_errors = max(self.max_errors - self._error_count, 0)
+            if remaining_errors == 0:
+                error = RuntimeError(
+                    f"RLM error limit reached: {self._error_count} >= max_errors {self.max_errors}"
+                )
+                _emit_subcall_error(error)
+                raise error
+
+        remaining_timeout: float | None = None
+        if self.max_timeout is not None:
+            elapsed = 0.0
+            if self._active_time_start is not None:
+                elapsed = max(time.perf_counter() - self._active_time_start, 0.0)
+            remaining_timeout = max(self.max_timeout - elapsed, 0.0)
+            if remaining_timeout == 0:
+                error = TimeoutError(
+                    f"RLM timeout: {elapsed:.1f}s >= max_timeout {self.max_timeout:.1f}s"
+                )
+                _emit_subcall_error(error)
+                raise error
+
+        child_config = RLMConfig(
+            backend=cast(ClientBackend, self.backend),
+            backend_kwargs=self.backend_kwargs.copy() if self.backend_kwargs is not None else None,
+            environment=cast(EnvironmentType, self.environment_type),
+            environment_kwargs=self.environment_kwargs.copy(),
+            depth=child_depth,
+            max_depth=self.max_depth,
+            max_iterations=self.max_iterations,
+            max_budget=remaining_budget,
+            max_timeout=remaining_timeout,
+            max_errors=remaining_errors,
+            custom_system_prompt=self.system_prompt,
+            other_backends=self.other_backends.copy() if self.other_backends is not None else None,
+            other_backend_kwargs=(
+                [kwargs.copy() for kwargs in self.other_backend_kwargs]
+                if self.other_backend_kwargs is not None
+                else None
+            ),
+            sub_lms=self.sub_lms.copy() if self.sub_lms is not None else None,
+            enable_recursive_subcalls=self.enable_recursive_subcalls,
+            on_subcall_start=self.on_subcall_start,
+            on_subcall_complete=self.on_subcall_complete,
+            on_iteration_start=self.on_iteration_start,
+            on_iteration_complete=self.on_iteration_complete,
+            max_root_tokens=self.max_root_tokens,
+            max_sub_tokens=self.max_sub_tokens,
+            enable_prefix_cache=self.enable_prefix_cache,
+            verbose=self.verbose.enabled,
+            compaction=self.compaction,
+            compaction_threshold_pct=self.compaction_threshold_pct,
+            custom_tools=self.custom_tools,
+        )
+
+        child_rlm: RLM | None = None
+        try:
+            child_rlm = RLM(child_config)
+            result = child_rlm.completion(prompt, root_prompt=root_prompt)
+            self._cumulative_cost += child_rlm._cumulative_cost
+            if self.on_subcall_complete is not None:
+                self.on_subcall_complete(
+                    {
+                        **start_payload,
+                        "status": "success",
+                        "response": result.response,
+                        "execution_time": result.execution_time,
+                    }
+                )
+            return result
+        except Exception as error:
+            if self.on_subcall_complete is not None:
+                self.on_subcall_complete(
+                    {
+                        **start_payload,
+                        "status": "error",
+                        "error": str(error),
+                    }
+                )
+            raise
+        finally:
+            if child_rlm is not None and self.max_errors is not None:
+                self._error_count += child_rlm._error_count
+
+    def subcall(
+        self, prompt: str | dict[str, Any], root_prompt: str | None = None
+    ) -> RLMChatCompletion:
+        return self._subcall(prompt, root_prompt)
 
     @contextmanager
     def _spawn_completion_context(self, prompt: str | dict[str, Any]):
@@ -272,33 +460,42 @@ class RLM:
             A final answer as a string.
         """
         time_start = time.perf_counter()
+        previous_time_start = self._active_time_start
+        self._active_time_start = time_start
 
-        # Clear in-memory iteration store for this completion
-        if self.logger:
-            self.logger.clear_iterations()
+        try:
+            # Clear in-memory iteration store for this completion
+            if self.logger:
+                self.logger.clear_iterations()
 
-        # If we're at max depth, the RLM is an LM, so we fallback to the regular LM.
-        if self.depth >= self.max_depth:
-            return self._fallback_answer(prompt)
+            # If we're at max depth, the RLM is an LM, so we fallback to the regular LM.
+            if self.depth >= self.max_depth:
+                return self._fallback_answer(prompt)
 
-        with self._spawn_completion_context(prompt) as (lm_handler, environment):
-            message_history = self._setup_prompt(prompt)
-            loop_state = _LoopState(
-                prompt=prompt,
-                root_prompt=root_prompt,
-                lm_handler=lm_handler,
-                environment=environment,
-                message_history=message_history,
-                compaction_count=0,
-                time_start=time_start,
-            )
-            return self._run_iteration_loop(loop_state)
+            with self._spawn_completion_context(prompt) as (lm_handler, environment):
+                message_history = self._setup_prompt(prompt)
+                loop_state = _LoopState(
+                    prompt=prompt,
+                    root_prompt=root_prompt,
+                    lm_handler=lm_handler,
+                    environment=environment,
+                    message_history=message_history,
+                    compaction_count=0,
+                    time_start=time_start,
+                )
+                return self._run_iteration_loop(loop_state)
+        finally:
+            self._active_time_start = previous_time_start
 
     def _run_iteration_loop(
         self,
         loop_state: _LoopState,
     ) -> RLMChatCompletion:
+        self._last_handler_tokens = 0
+        self._error_count = 0
         for i in range(self.max_iterations):
+            self._check_iteration_limits(loop_state)
+
             loop_state.message_history, loop_state.compaction_count = self._maybe_compact(
                 loop_state.lm_handler,
                 loop_state.environment,
@@ -307,6 +504,9 @@ class RLM:
             )
 
             iteration = self._run_single_iteration(loop_state, i)
+            self._update_error_count(iteration)
+            self._update_handler_cost(loop_state.lm_handler)
+            self._check_iteration_limits(loop_state)
             final_answer = self._record_iteration(iteration, loop_state.environment, i + 1)
             if final_answer is not None:
                 return self._finalize_completion(
@@ -324,12 +524,85 @@ class RLM:
             iteration_count=self.max_iterations,
         )
 
+    def _update_handler_cost(self, lm_handler: LMHandler) -> None:
+        """Sync handler token deltas into _cumulative_cost.
+
+        Tracks the total tokens consumed across all handler clients and converts
+        the delta since last sync into an approximate dollar cost using a simple
+        token-to-cost ratio.  This ensures subcalls at deeper depths see an
+        accurate remaining budget.
+        """
+        current_tokens = lm_handler.default_client.get_total_tokens()
+        delta = current_tokens - self._last_handler_tokens
+        if delta > 0:
+            # Approximate cost: $0.01 per 1K tokens (conservative default)
+            self._cumulative_cost += delta * 0.00001
+            self._last_handler_tokens = current_tokens
+
+    def update_handler_cost(self, lm_handler: LMHandler) -> None:
+        self._update_handler_cost(lm_handler)
+
+    def _check_iteration_limits(self, loop_state: _LoopState) -> None:
+        """Check budget, timeout, and error limits before each iteration."""
+        if self.max_budget is not None and self._cumulative_cost >= self.max_budget:
+            raise BudgetExceededError(self._cumulative_cost, self.max_budget)
+
+        if self.max_errors is not None and self._error_count >= self.max_errors:
+            raise RuntimeError(
+                f"RLM error limit reached: {self._error_count} >= max_errors {self.max_errors}"
+            )
+
+        if self.max_timeout is not None:
+            elapsed = time.perf_counter() - loop_state.time_start
+            if elapsed >= self.max_timeout:
+                raise TimeoutError(
+                    f"RLM timeout: {elapsed:.1f}s >= max_timeout {self.max_timeout:.1f}s"
+                )
+
+    def check_iteration_limits(self, loop_state: _LoopState) -> None:
+        self._check_iteration_limits(loop_state)
+
+    def _update_error_count(self, iteration: RLMIteration) -> None:
+        """Count execution errors emitted by code blocks in the current iteration."""
+        if self.max_errors is None:
+            return
+        for code_block in iteration.code_blocks:
+            if code_block.result.stderr.strip():
+                self._error_count += 1
+
     def _run_single_iteration(self, loop_state: _LoopState, iteration_index: int) -> RLMIteration:
+        self._emit_iteration_start(iteration_index)
         current_prompt = self._build_iteration_prompt(loop_state, iteration_index)
-        return self._completion_turn(
+        iteration = self.completion_turn(
             prompt=current_prompt,
             lm_handler=loop_state.lm_handler,
             environment=loop_state.environment,
+        )
+        self._emit_iteration_complete(iteration_index, iteration)
+        return iteration
+
+    def _emit_iteration_start(self, iteration_index: int) -> None:
+        if self.on_iteration_start is None:
+            return
+        self.on_iteration_start(
+            {
+                "depth": self.depth,
+                "iteration": iteration_index + 1,
+                "max_iterations": self.max_iterations,
+            }
+        )
+
+    def _emit_iteration_complete(self, iteration_index: int, iteration: RLMIteration) -> None:
+        if self.on_iteration_complete is None:
+            return
+        self.on_iteration_complete(
+            {
+                "depth": self.depth,
+                "iteration": iteration_index + 1,
+                "response": iteration.response,
+                "code_block_count": len(iteration.code_blocks),
+                "iteration_time": iteration.iteration_time,
+            }
         )
 
     def _build_iteration_prompt(
@@ -467,6 +740,14 @@ class RLM:
             code_blocks=code_blocks,
             iteration_time=iteration_time,
         )
+
+    def completion_turn(
+        self,
+        prompt: str | list[dict[str, Any]],
+        lm_handler: LMHandler,
+        environment: BaseEnv,
+    ) -> RLMIteration:
+        return self._completion_turn(prompt, lm_handler, environment)
 
     def _cached_prompt(
         self,

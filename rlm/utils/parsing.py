@@ -33,6 +33,11 @@ def find_final_answer(text: str, environment: "BaseEnv | None" = None) -> str | 
     If FINAL_VAR is found and an environment is provided, executes code to retrieve the variable value.
     Returns None if neither pattern is found.
 
+    When the response contains REPL code blocks, text-based FINAL() is skipped to prevent
+    hallucinated FINAL() in prose from short-circuiting the iteration loop (e.g. Claude 4.6).
+    FINAL_VAR() in text is still honoured because it references a REPL variable by name.
+    The REPL-callable path (consume_final_answer) is always checked.
+
     Args:
         text: The response text to parse
         environment: Optional environment to execute code for FINAL_VAR retrieval
@@ -40,14 +45,20 @@ def find_final_answer(text: str, environment: "BaseEnv | None" = None) -> str | 
     Returns:
         The final answer string, or None if no final answer pattern is found
     """
+    has_code_blocks = bool(find_code_blocks(text))
     text_without_code_fences = _strip_code_fences(text)
+
     final_var_name = _extract_final_var_name(text_without_code_fences)
     if final_var_name is not None:
         return _resolve_final_var(final_var_name, environment)
 
-    final_payload = _extract_final_payload(text_without_code_fences)
-    if final_payload is not None:
-        return final_payload
+    # Skip text-based FINAL() when code blocks are present — the model should
+    # use the FINAL() callable inside a REPL block instead.  This guards against
+    # Claude-style hallucinated FINAL() in prose alongside code blocks.
+    if not has_code_blocks:
+        final_payload = _extract_final_payload(text_without_code_fences)
+        if final_payload is not None:
+            return final_payload
 
     return _consume_environment_final_answer(environment)
 

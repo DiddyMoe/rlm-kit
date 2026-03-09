@@ -16,6 +16,9 @@ from rlm.clients.base_lm import BaseLM
 from rlm.core.comms_utils import LMRequest, LMResponse, socket_recv, socket_send
 from rlm.core.types import RLMChatCompletion, UsageSummary
 
+# Maximum concurrent LM calls for batched requests (prevents provider overload)
+MAX_CONCURRENT_BATCH = 16
+
 
 class LMRequestHandler(StreamRequestHandler):
     """Socket handler for LLM completion requests."""
@@ -33,7 +36,7 @@ class LMRequestHandler(StreamRequestHandler):
 
             if request.is_batched:
                 # Batched request: process multiple prompts concurrently
-                response = self._handle_batched(request, handler)
+                response = self.handle_batched(request, handler)
             elif request.prompt:
                 # Single request: process one prompt
                 response = self._handle_single(request, handler)
@@ -93,7 +96,7 @@ class LMRequestHandler(StreamRequestHandler):
         )
 
     def _handle_batched(self, request: LMRequest, handler: "LMHandler") -> LMResponse:
-        """Handle a batched prompts request using async for concurrency."""
+        """Handle a batched prompts request using async with semaphore-bounded concurrency."""
         if request.prompts is None:
             return LMResponse.error_response("Missing 'prompts' for batched request")
 
@@ -106,7 +109,13 @@ class LMRequestHandler(StreamRequestHandler):
         start_time = time.perf_counter()
 
         async def run_all():
-            tasks = [client.acompletion(prompt) for prompt in prompts]
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCH)
+
+            async def bounded_call(prompt: str | list[dict[str, Any]]) -> str:
+                async with semaphore:
+                    return await client.acompletion(prompt)
+
+            tasks = [bounded_call(prompt) for prompt in prompts]
             return await asyncio.gather(*tasks)
 
         results = asyncio.run(run_all())
@@ -133,6 +142,9 @@ class LMRequestHandler(StreamRequestHandler):
         ]
 
         return LMResponse.batched_success_response(chat_completions=chat_completions)
+
+    def handle_batched(self, request: LMRequest, handler: "LMHandler") -> LMResponse:
+        return self._handle_batched(request, handler)
 
 
 class ThreadingLMServer(ThreadingTCPServer):

@@ -12,10 +12,23 @@ ClientBackend = Literal[
     "anthropic",
     "azure_openai",
     "gemini",
+    "groq",
+    "cerebras",
     "ollama",
     "vscode_lm",
 ]
 EnvironmentType = Literal["local", "docker", "modal", "prime", "daytona", "e2b"]
+
+
+class BudgetExceededError(Exception):
+    """Raised when the RLM's cumulative cost exceeds the configured max_budget."""
+
+    def __init__(self, cumulative_cost: float, max_budget: float) -> None:
+        self.cumulative_cost = cumulative_cost
+        self.max_budget = max_budget
+        super().__init__(
+            f"Budget exceeded: cumulative cost ${cumulative_cost:.4f} >= max_budget ${max_budget:.4f}"
+        )
 
 
 def _serialize_sequence(value: Any) -> list[Any]:
@@ -67,12 +80,16 @@ class ModelUsageSummary:
     total_calls: int
     total_input_tokens: int
     total_output_tokens: int
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return {
             "total_calls": self.total_calls,
             "total_input_tokens": self.total_input_tokens,
             "total_output_tokens": self.total_output_tokens,
+            "cache_creation_input_tokens": self.cache_creation_input_tokens,
+            "cache_read_input_tokens": self.cache_read_input_tokens,
         }
 
     @classmethod
@@ -81,6 +98,8 @@ class ModelUsageSummary:
             total_calls=int(data.get("total_calls", 0)),
             total_input_tokens=int(data.get("total_input_tokens", 0)),
             total_output_tokens=int(data.get("total_output_tokens", 0)),
+            cache_creation_input_tokens=int(data.get("cache_creation_input_tokens", 0)),
+            cache_read_input_tokens=int(data.get("cache_read_input_tokens", 0)),
         )
 
 

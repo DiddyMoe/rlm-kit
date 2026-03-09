@@ -149,9 +149,15 @@ def build_rlm_system_prompt(
 
     prompt_content = system_prompt
     if custom_tools:
-        tool_names = ", ".join(f"`{name}`" for name in custom_tools)
+        tool_entries: list[str] = []
+        for i, (name, description) in enumerate(custom_tools.items(), start=6):
+            if description:
+                tool_entries.append(f"{i}. A `{name}` function: {description}")
+            else:
+                tool_entries.append(f"{i}. A `{name}` function available as a custom tool.")
+        tools_section = "\n".join(tool_entries)
         prompt_content += (
-            f"\n\nAdditional custom tools are available in the REPL environment: {tool_names}. "
+            f"\n\nAdditional custom tools are available in the REPL environment:\n{tools_section}\n"
             "You can call them like regular Python functions."
         )
     if compaction:
