@@ -115,7 +115,14 @@ Cursor integrates via MCP — no Chat Participant (Cursor doesn't support `vscod
 
 ## Supported LLM Backends
 
-OpenAI, Anthropic, Azure OpenAI, Google Gemini, OpenRouter, Portkey, Vercel AI Gateway, vLLM, LiteLLM
+OpenAI, Anthropic, Azure OpenAI, Google Gemini, OpenRouter, Portkey, Vercel AI Gateway, vLLM, LiteLLM, Groq, Cerebras
+
+## MCP Registry Preparation
+
+This repository includes a registry-readiness checklist for publishing the gateway to the GitHub MCP Registry:
+- [docs/integration/mcp-registry.md](docs/integration/mcp-registry.md)
+
+The checklist covers server naming (`rlmGateway`), metadata, packaging options, and validation steps before submission.
 
 ## REPL Environments
 

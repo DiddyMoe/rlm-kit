@@ -26,7 +26,7 @@ This project uses structured prompt files in `.github/prompts/` for multi-step w
 
 ### Quality Pipeline Philosophy
 
-- **Tool-first detection**: `ruff`, `ty`, `tsc`, `eslint`, `pytest` for deterministic findings; model analysis supplements only
+- **Tool-first detection**: `ruff`, `ty`, `pylance`, `tsc`, `eslint`, `pytest` for deterministic findings; model analysis supplements only
 - **Orthogonal passes**: Tool errors → protocol/schema → incomplete implementations → complexity → test gaps
 - **Evidence-based backlog**: Items cite tool output or file:line references, not narrative descriptions
 - **Regression-aware fixes**: Test requirements and tool re-checks before marking items done
@@ -37,22 +37,46 @@ This project uses structured prompt files in `.github/prompts/` for multi-step w
 
 1. Run a **plan** prompt first — it researches/audits and writes findings and backlog artifacts directly to disk
 2. Run the matching **agent** prompt — it reads artifacts from disk and implements backlog items
-3. Agent prompts enforce **evidence gates**: tool verification, test requirements, and regression checks
-4. Research and debug backlogs are separate — agents do not cross boundaries
+3. Plans write only to `docs/orchestrator/` artifact files; agents implement and verify with `make check`
+4. Agent prompts enforce **evidence gates**: tool verification, test requirements, and regression checks
+5. Research, debug, and refactor backlogs are separate — agents do not cross boundaries
 
 ### Artifact Ownership
 
 | Artifact | Written by | Read by | Mutated by |
 |----------|-----------|---------|------------|
-| `docs/orchestrator/research-findings.md` | research-plan | research-agent, debug-plan | research-agent (remove completed) |
-| `docs/orchestrator/research-backlog.md` | research-plan | research-agent | research-agent (remove completed) |
-| `docs/orchestrator/debug-findings.md` | debug-plan | debug-agent | debug-agent (remove completed) |
-| `docs/orchestrator/debug-backlog.md` | debug-plan | debug-agent | debug-agent (remove completed) |
-| `docs/orchestrator/refactor-findings.md` | refactor-plan | refactor-agent | refactor-agent (remove completed) |
-| `docs/orchestrator/refactor-backlog.md` | refactor-plan | refactor-agent | refactor-agent (remove completed) |
+| `docs/orchestrator/research-findings.md` | research-plan | research-agent, debug-plan, debug-agent, refactor-plan, refactor-agent | research-agent (remove completed) |
+| `docs/orchestrator/research-backlog.md` | research-plan | research-agent, debug-plan, debug-agent, refactor-plan, refactor-agent | research-agent (remove completed) |
+| `docs/orchestrator/debug-findings.md` | debug-plan | debug-agent, research-plan, research-agent, refactor-plan, refactor-agent | debug-agent (remove completed) |
+| `docs/orchestrator/debug-backlog.md` | debug-plan | debug-agent, research-plan, research-agent, refactor-plan, refactor-agent | debug-agent (remove completed) |
+| `docs/orchestrator/refactor-findings.md` | refactor-plan | refactor-agent, research-plan, research-agent, debug-plan, debug-agent | refactor-agent (remove completed) |
+| `docs/orchestrator/refactor-backlog.md` | refactor-plan | refactor-agent, research-plan, research-agent, debug-plan, debug-agent | refactor-agent (remove completed) |
 | `docs/orchestrator/plan.md` | Manual / orchestrator | All prompts | Never (propose amendments only) |
 | `docs/orchestrator/state.json` | All agents | All prompts | All agents (append to applied/verified) |
-| `docs/orchestrator/run_log.md` | All agents | All prompts | All agents (append only) |
+
+## Detailed Instruction Files
+
+Workspace-level instruction sets are in `.github/instructions/`:
+
+| File | Covers |
+|------|--------|
+| `project-overview.instructions.md` | Architecture, layout, data flow, IDE integration summary |
+| `python-conventions.instructions.md` | Formatting, typing, naming, errors, complexity, dataclass patterns |
+| `typescript-conventions.instructions.md` | Strict mode, typing rules, extension architecture, security |
+| `testing.instructions.md` | pytest patterns, mock LM, class-based tests, CI workflows |
+| `code-patterns.instructions.md` | Dataclass serialization, factory functions, socket IPC, singletons, builtins |
+| `developing-clients.instructions.md` | How to add a new LM client (BaseLM subclass) |
+| `developing-environments.instructions.md` | How to add a new REPL environment (BaseEnv subclass) |
+| `mcp-gateway.instructions.md` | MCP tool list, server modes, security, search patterns |
+| `security.instructions.md` | Sandbox tiers, AST validation, extension security, env vars |
+| `cross-boundary.instructions.md` | Python↔TypeScript protocol, socket protocol, MCP contracts |
+| `ide-integration.instructions.md` | VS Code chat participant, Cursor MCP, settings, provider modes |
+| `orchestrator-workflow.instructions.md` | Plan/agent prompts, backlog formats, evidence gates |
+| `contributing.instructions.md` | Quick start, PR requirements, scope rules |
+| `logging-trajectory.instructions.md` | RLMLogger, JSONL schema, VerbosePrinter, trajectory data flow |
+| `debugging.instructions.md` | CallHistory, GraphTracker, export formats, NetworkX integration |
+| `rlm-config-features.instructions.md` | Compaction, budgets, custom tools, callbacks, recursive subcalls |
+| `token-management.instructions.md` | Token counting, model context limits, tiktoken, heuristic estimates |
 
 ## Conventions (defer to AGENTS.md for details)
 

@@ -21,8 +21,8 @@ RLM.completion(prompt)
 |-------|----------|--------|
 | Core | `rlm/core/` | RLM loop (`rlm.py`), LM handler, types, comms |
 | Clients | `rlm/clients/` | LM API integrations (OpenAI, Anthropic, Gemini, etc.) |
-| Environments | `rlm/environments/` | REPL execution: Local, Docker, Modal, Prime, Daytona |
-| MCP Gateway | `rlm/mcp_gateway/` | MCP server for IDE integration (Cursor) |
+| Environments | `rlm/environments/` | REPL execution: Local, Docker, Modal, Prime, Daytona, E2B |
+| MCP Gateway | `rlm/mcp_gateway/` | MCP server for IDE integration (VS Code + Cursor) |
 | Extension | `vscode-extension/` | VS Code Chat Participant + Python backend bridge |
 | Sandbox | `rlm/core/sandbox/` | AST validation, builtins restriction, runtime blocking |
 
@@ -80,7 +80,7 @@ All commands are available via `make`. Prefer these over raw `uv run` invocation
 | Command | Action |
 |---------|--------|
 | `make install` | `uv sync` |
-| `make install-dev` | `uv sync --group dev --group test` |
+| `make install-dev` | `uv sync --group dev --group test --extra mcp --extra modal --extra e2b --extra prime` |
 | `make install-modal` | `uv pip install -e ".[modal]"` |
 | `make lint` | `uv run ruff check .` |
 | `make format` | `uv run ruff format .` |
@@ -96,8 +96,9 @@ All commands are available via `make`. Prefer these over raw `uv run` invocation
 | `make ext-build` | `cd vscode-extension && npx tsc -p ./` |
 | `make ext-typecheck` | `cd vscode-extension && npx tsc --noEmit` |
 | `make ext-lint` | `cd vscode-extension && npx eslint src/ --max-warnings 0` |
-| `make ext-test` | `node vscode-extension/out/logger.test.js` |
+| `make ext-test` | Build + run 5 extension unit test files |
 | `make ext-check` | ext-typecheck + ext-lint + ext-test |
+| `make ext-clean` | Remove `out/` directory |
 
 **Ruff config**: line-length=100, target Python 3.11, rules E/W/F/I/B/UP, `E501` ignored, double-quote format.
 **Type checker**: `ty` (not mypy/pyright).
@@ -421,7 +422,7 @@ The extension lives in `vscode-extension/`. Zero runtime npm dependencies.
 | `src/backendBridge.ts` | Spawns Python sidecar, JSON-over-stdin/stdout protocol |
 | `src/configService.ts` | Singleton for `rlm.*` settings with typed change events |
 | `src/apiKeyManager.ts` | API key storage via `vscode.SecretStorage` |
-| `src/logger.ts` | JSONL logger with rolling, redaction (10 patterns), crash-safe |
+| `src/logger.ts` | JSONL logger with rolling, redaction (9 patterns), crash-safe |
 | `python/rlm_backend.py` | Python sidecar, creates `RLM` instances, only `local` REPL supported |
 
 **TypeScript strictness**: `exactOptionalPropertyTypes`, all strict flags, ESLint `strictTypeChecked`, `no-explicit-any: "error"`, complexity cap at 15.
@@ -439,8 +440,8 @@ The MCP gateway (`rlm/mcp_gateway/`) exposes RLM tools for IDE integration (Curs
 ## Security
 
 - **Sandbox** (`rlm/core/sandbox/`): AST validation blocks dangerous modules (`os`, `subprocess`, `socket`, etc.) and functions (`eval`, `exec`, `compile`). `BlockedModule` replaces dangerous modules in `sys.modules` at runtime.
-- **LocalREPL**: Uses `_SAFE_BUILTINS` — blocks `eval`, `exec`, `compile`, `input`, `globals`, `locals` by setting to `None`. Allows `__import__` and `open`.
-- **Extension**: API keys stored in OS keychain (`vscode.SecretStorage`), env vars filtered via `filter_sensitive_keys()`, log redaction for 10 sensitive patterns, orphan process protection via parent PID monitoring.
+- **LocalREPL**: Uses `get_safe_builtins_for_repl()` with additional restrictions — blocks `eval`, `exec`, `compile`, `input`, `globals`, `locals` by setting to `None`. Allows `__import__` and `open`.
+- **Extension**: API keys stored in OS keychain (`vscode.SecretStorage`), env vars filtered via `BackendBridge.buildChildEnv()`, log redaction for 9 sensitive patterns, orphan process protection via parent PID monitoring.
 - **Environment variables**: ONLY for API keys. Never hardcode secrets.
 
 ## Orchestrator Prompts
@@ -451,7 +452,7 @@ This project uses structured prompt files in `.github/prompts/` for multi-step w
 
 The orchestrator pipeline is designed to **converge**, not to "find all bugs":
 
-- **Tool-first detection**: Debug plan uses real static analysis tools (`ruff`, `ty`, `tsc`, `eslint`, `pytest`) for deterministic, exhaustive findings within their domain. Model analysis supplements but never replaces tool output.
+- **Tool-first detection**: Debug plan uses real static analysis tools (`ruff`, `ty`, `pylance`, `tsc`, `eslint`, `pytest`) for deterministic, exhaustive findings within their domain. Model analysis supplements but never replaces tool output.
 - **Orthogonal passes**: Detection is split into focused passes (tool errors → protocol/schema → incomplete implementations → complexity → test gaps) rather than one monolithic audit. Each pass has a narrow lens.
 - **Evidence-based backlog**: Every backlog item must cite specific tool output, file:line references, or code snippets. Narrative-only findings are not accepted.
 - **Regression-aware fixes**: Agent prompts require test coverage for cross-boundary fixes and re-run tool checks after every change. Items are not "done" without passing evidence gates.
@@ -478,9 +479,9 @@ The orchestrator pipeline is designed to **converge**, not to "find all bugs":
 
 ### Artifact Ownership
 
-- **Findings files** (`research-findings.md`, `debug-findings.md`, `refactor-findings.md`): Agents remove completed/implemented entries; only actionable findings remain
-- **Backlog files** (`research-backlog.md`, `debug-backlog.md`, `refactor-backlog.md`): Items are removed by their respective agent when implemented; items include test requirements
-- **State** (`state.json`, `run_log.md`): Updated by all agents (append-only for run_log); run_log includes tool output summaries
+- **Findings files** (`research-findings.md`, `debug-findings.md`, `refactor-findings.md`): Agents remove completed/implemented entries; only actionable findings remain. Plans and agents read all other pipelines' findings for context and deduplication.
+- **Backlog files** (`research-backlog.md`, `debug-backlog.md`, `refactor-backlog.md`): Items are removed by their respective agent when implemented; items include test requirements. Agents read other pipelines' backlogs for context but must not implement their items.
+- **State** (`state.json`): Updated by all agents (append to applied/verified)
 - **Plan** (`plan.md`): Never modified by agents; propose amendments if needed
 
 ### Pipeline Limitations
@@ -499,6 +500,7 @@ These limitations are documented in the debug-plan findings artifact and acknowl
 |------|----------|-------|
 | `AGENTS.md` | All AI agents and human contributors | Canonical project guide — architecture, conventions, patterns |
 | `CLAUDE.md` | Claude-based agents (Claude Code, Cursor with Claude) | Quick reference + orchestrator prompt documentation |
-| `.github/copilot-instructions.md` | GitHub Copilot (VS Code Chat, Agent Mode) | Quick reference + orchestrator prompt documentation |
+| `.github/copilot-instructions.md` | GitHub Copilot (VS Code Chat, Agent Mode) | Quick reference + index to instruction files |
+| `.github/instructions/*.instructions.md` | All AI agents (VS Code, Cursor, Claude) | Detailed workspace-level instruction sets (17 topics) |
 | `.cursor/rules/*.mdc` | Cursor | Architecture + MCP integration rules |
 | `.github/prompts/*.prompt.md` | All agents (invoked explicitly) | Task-specific workflows with idempotent protocols |
